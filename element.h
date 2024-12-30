@@ -4,23 +4,14 @@
  * stores refcounted elements of type ATOM, CONS, ERROR, FUNCx
  */
 
+#include <sha256.h>
+
 #include <stddef.h>
 #include <stdint.h>
 #include <limits>
 #include <memory>
 
-enum class ElType : uint8_t {
-    ATOM = 0,
-    CONS = 1,
-    ERROR = 2,
-    // EXTATOM -- ATOM, but the data is unowned and shouldn't be freed
-    // SMALLATOM -- ATOM, but no need for a pointer, just store the data directly
-    // SIMPCONS -- CONS, but all children are either SIMPCONS or ATOM
-};
-template<uint8_t fnum>
-constexpr ElType FUNC{3+fnum};
-
-using enum ElType;
+using ElType = uint8_t;
 
 class Element;
 
@@ -71,13 +62,12 @@ public:
         return *reinterpret_cast<ElData<T>*>(&eldata);
     }
 
-    template<uint8_t N=0, typename R=void, typename Fn>
+    template<ElType N=0, typename R=void, typename Fn>
     R visit(Fn&& fn)
     {
-        constexpr auto ET{static_cast<ElType>(N)};
-        if constexpr (ValidElData<ET>) {
-            if (type == ET) {
-                return fn(reinterpret_cast<ElData<ET>*>(&eldata));
+        if constexpr (ValidElData<N>) {
+            if (type == N) {
+                return fn(reinterpret_cast<ElData<N>*>(&eldata));
             }
         }
         if constexpr (N < std::numeric_limits<uint8_t>::max()) {
@@ -88,21 +78,25 @@ public:
     }
 };
 
-template<>
-struct ElData<ATOM>
+#define STRUCTELDATA(NAME, TYPENUM) \
+    static constexpr ElType NAME{TYPENUM}; \
+    template<> struct ElData<NAME>
+
+STRUCTELDATA(ATOM, 0)
 {
     size_t size;  // in bytes
     uint8_t* atom;
 
+    void init(size_t s, uint8_t* a) { size = s; atom = a; }
     void dealloc(Element**, Element**) { free(atom); atom = nullptr; size = 0; }
 };
 
-template<>
-struct ElData<CONS>
+STRUCTELDATA(CONS, 1)
 {
     Element* left;
     Element* right;
 
+    void init(Element* l, Element* r) { left = l; right = r; }
     void dealloc(Element** a, Element** b) { *a = left; *b = right; left = right = nullptr; }
 
     std::pair<Element*,Element*> copy_children()
@@ -112,14 +106,79 @@ struct ElData<CONS>
     }
 };
 
-template<>
-struct ElData<ERROR>
+STRUCTELDATA(ERROR, 2)
+{
+    // no data. could add: size_t size; uint8_t* msg;
+
+    void init() { }
+    void dealloc(Element**, Element**) { }
+};
+
+STRUCTELDATA(SMLATOM, 3)
 {
     size_t size;
-    uint8_t* msg;
+    uint32_t data;
 
-    void dealloc(Element**, Element**) { free(msg); msg = nullptr; size = 0; }
+    void init(int32_t a) 
+    {
+        bool neg = false;
+        if (a < 0) {
+            neg = true;
+            a = -a;
+        }
+        if (a == 0) {
+            size = 0;
+            data = 0;
+        } else if (a < (1L << 7)) {
+            size = 1;
+            data = a | (neg ? 0x80 : 0);
+        } else if (a < (1L << 15)) {
+            size = 2;
+            data = a | (neg ? 0x8000 : 0);
+        } else if (a < (1L << 23)) {
+            size = 3;
+            data = a | (neg ? 0x800000 : 0);
+        } else {
+            size = 4;
+            data = a | (neg ? 0x80000000 : 0);
+        }
+    }
+
+    void dealloc(Element**, Element**) { data = 0; size = 0; }
 };
+
+template<ElType N>
+struct FuncData; // { static constexpr bool is_empty_funcdata = true; };
+
+#define FUNCELDATA(NAME, TYPENUM) \
+STRUCTELDATA(NAME, TYPENUM) \
+{ \
+    std::nullptr_t* int_data{nullptr}; \
+    Element* ext_data{nullptr}; \
+    void init(Element* ed) { ext_data = ed; } \
+    void dealloc(Element** a, Element**) { *a = ext_data; free(int_data); ext_data = nullptr; int_data = nullptr; } \
+}
+
+#define FUNCELDATA_FUNCDATA(NAME, TYPENUM, FUNCDATA) \
+template<> struct FuncData<TYPENUM> { FUNCDATA; }; \
+STRUCTELDATA(NAME, TYPENUM) \
+{ \
+    FuncData<NAME>* int_data{nullptr}; \
+    Element* ext_data{nullptr}; \
+    void init(Element* ed, FuncData<NAME>* id) { ext_data = ed; int_data = id; } \
+    void dealloc(Element** a, Element**) { *a = ext_data; free(int_data); ext_data = nullptr; int_data = nullptr; } \
+}
+
+FUNCELDATA(BLLEVAL, 5);
+FUNCELDATA(QUOTE, 6);
+FUNCELDATA_FUNCDATA(SHA256, 98, CSHA256 hasher);
+
+static_assert(ValidElData<BLLEVAL>);
+static_assert(ValidElData<SHA256>);
+
+// EXTATOM -- ATOM, but the data is unowned and shouldn't be freed
+// SMALLATOM -- ATOM, but no need for a pointer, just store the data directly
+// SIMPCONS -- CONS, but all children are either SIMPCONS or ATOM
 
 // smart, read-only Element pointers
 class ElRef
@@ -127,7 +186,15 @@ class ElRef
 private:
     Element* m_el{nullptr};
 
+    // are these useful?
+    Element* copy_underlying()
+    {
+        return Element::bumpref(m_el);
+    }
+
 public:
+    bool is_nullptr() const { return m_el == nullptr; }
+
     ElRef() = default;
 
     ElRef(ElRef&& other)
@@ -136,9 +203,15 @@ public:
         other.m_el = nullptr;
     }
 
-    ElRef(ElRef& other)
+    explicit ElRef(ElRef& other)
     {
         m_el = Element::bumpref(other.m_el);
+    }
+
+    explicit ElRef(Element*&& other)
+    {
+        m_el = other;
+        other = nullptr;
     }
 
     ElRef& operator=(ElRef& other)
@@ -150,26 +223,28 @@ public:
         return *this;
     }
 
+    ElRef& operator=(ElRef&& other)
+    {
+        Element::deref(m_el);
+        m_el = Element::bumpref(other.m_el);
+        return *this;
+    }
+
+
     ~ElRef() {
         Element::deref(m_el);
     }
 
-    Element* copy()
+    ElRef copy()
     {
-        return Element::bumpref(m_el);
+        return ElRef{Element::bumpref(m_el)};
     }
 
-    Element* steal()
+    operator Element*() &&
     {
         Element* el = m_el;
         m_el = nullptr;
         return el;
-    }
-
-    void takeover(Element* el)
-    {
-        if (m_el != el) Element::deref(m_el);
-        m_el = Element::bumpref(el);
     }
 
     template<ElType T>
@@ -193,6 +268,10 @@ public:
  *   Atom(0) and Atom(1) deduping
  *   assert on deref(0) ?
  *
+ *   how to distinguish internal allocations (Func) and external allocations
+ *   (Cons) and early(?) allocations (data for Atom so there's something to populate
+ *   as we're calculating?)
+ *
  *   (de)serialization to bytes (and text?)
  *      -- incomplete cons when deserializing (while refcount==1)
  *         (really, this is a partial construction where the partial is
@@ -200,6 +279,9 @@ public:
  *      -- componentwise-serialization, concatenated/trimmed when complete?
  *
  *   math maybe?
+ *     maybe all math should be done modulo N? but is the range [0,N) or [-N/2,N) ?
+ *     would we change "softfork" to "ctx" or something in that case? that would give
+ *     a stronger argument for (verify) opcode.
  *
  *   bllcons / smallatom / extatom
  *
