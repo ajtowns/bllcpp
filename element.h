@@ -38,6 +38,7 @@ private:
     alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
 
 public:
+    ElType get_type() const { return type; }
     static Element* bumpref(Element* el) { if (el) ++el->refcount; return el; }
     static void deref(Element* el);
 
@@ -194,6 +195,8 @@ private:
 
 public:
     bool is_nullptr() const { return m_el == nullptr; }
+
+    bool is_error() const { return m_el && m_el->get_type() == ERROR; }
 
     ElRef() = default;
 

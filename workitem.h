@@ -79,7 +79,7 @@ public:
 
     void fin_value(ElRef&& val)
     {
-        new_continuation(arena.New<QUOTE>(arena.nil()), std::move(val), arena.nil());
+        feedback = std::move(val);
     }
 
     void error()
@@ -99,11 +99,4 @@ public:
     }
 };
 
-
-/*
-void ElData<ERROR>::step(feedback, state, args, env, workitem) const
-{
-    
-}
-*/
 
