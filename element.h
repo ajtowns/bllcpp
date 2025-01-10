@@ -4,263 +4,198 @@
  * stores refcounted elements of type ATOM, CONS, ERROR, FUNCx
  */
 
-#include <sha256.h>
+#ifndef ELEMENT_H
+#define ELEMENT_H
 
-#include <stddef.h>
-#include <stdint.h>
+#include <elem.h>
+#include <span.h>
+#include <attributes.h>
+#include <overloaded.h>
+
 #include <limits>
 #include <memory>
+#include <optional>
+#include <stddef.h>
+#include <stdint.h>
+#include <utility>
 
-using ElType = uint8_t;
+template<bool OWNED> class ElRefView;
+using ElRef = ElRefView<true>;
+using ElView = ElRefView<false>;
 
-class Element;
-
-struct GenElData
-{
-    void* a;
-    void* b;
+enum class ElType : ElBaseType {
+    ATOM,
+    CONS,
+    ERROR,
+    FUNC,
 };
 
-template<ElType T>
-struct ElData { static constexpr bool invalid_eldata = true; };
-
-template<ElType T>
-concept ValidElData = requires(ElData<T>& ed, Element* a, Element* b)
-{
-    { ed.dealloc(&a, &b) };
-};
-
-class Element
-{
-private:
-    uint32_t refcount;
-    ElType type;
-    alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
-
-public:
-    ElType get_type() const { return type; }
-    static Element* bumpref(Element* el) { if (el) ++el->refcount; return el; }
-    static void deref(Element* el);
-
-    template<ElType T>
-    ElData<T>* get()
-    {
-        static_assert(sizeof(ElData<T>) <= sizeof(GenElData) && alignof(ElData<T>) <= alignof(GenElData));
-
-        if (type == T) {
-            return reinterpret_cast<ElData<T>*>(&eldata);
-        } else {
-            return nullptr;
-        }
-    }
-
-    template<ElType T>
-    ElData<T>& force_as()
-    {
-        static_assert(sizeof(ElData<T>) <= sizeof(GenElData) && alignof(ElData<T>) <= alignof(GenElData));
-
-        type = T;
-        return *reinterpret_cast<ElData<T>*>(&eldata);
-    }
-
-    template<ElType N=0, typename R=void, typename Fn>
-    R visit(Fn&& fn)
-    {
-        if constexpr (ValidElData<N>) {
-            if (type == N) {
-                return fn(reinterpret_cast<ElData<N>*>(&eldata));
-            }
-        }
-        if constexpr (N < std::numeric_limits<uint8_t>::max()) {
-            return visit<N+1,R>(std::move(fn));
-        } else {
-            return R();
-        }
-    }
-};
-
-#define STRUCTELDATA(NAME, TYPENUM) \
-    static constexpr ElType NAME{TYPENUM}; \
-    template<> struct ElData<NAME>
-
-STRUCTELDATA(ATOM, 0)
-{
-    size_t size;  // in bytes
-    uint8_t* atom;
-
-    void init(size_t s, uint8_t* a) { size = s; atom = a; }
-    void dealloc(Element**, Element**) { free(atom); atom = nullptr; size = 0; }
-};
-
-STRUCTELDATA(CONS, 1)
-{
-    Element* left;
-    Element* right;
-
-    void init(Element* l, Element* r) { left = l; right = r; }
-    void dealloc(Element** a, Element** b) { *a = left; *b = right; left = right = nullptr; }
-
-    std::pair<Element*,Element*> copy_children()
-    {
-        std::pair<Element*,Element*> ret{Element::bumpref(left), Element::bumpref(right)};
-        return ret;
-    }
-};
-
-STRUCTELDATA(ERROR, 2)
-{
-    // no data. could add: size_t size; uint8_t* msg;
-
-    void init() { }
-    void dealloc(Element**, Element**) { }
-};
-
-STRUCTELDATA(SMLATOM, 3)
-{
-    size_t size;
-    uint32_t data;
-
-    void init(int32_t a) 
-    {
-        bool neg = false;
-        if (a < 0) {
-            neg = true;
-            a = -a;
-        }
-        if (a == 0) {
-            size = 0;
-            data = 0;
-        } else if (a < (1L << 7)) {
-            size = 1;
-            data = a | (neg ? 0x80 : 0);
-        } else if (a < (1L << 15)) {
-            size = 2;
-            data = a | (neg ? 0x8000 : 0);
-        } else if (a < (1L << 23)) {
-            size = 3;
-            data = a | (neg ? 0x800000 : 0);
-        } else {
-            size = 4;
-            data = a | (neg ? 0x80000000 : 0);
-        }
-    }
-
-    void dealloc(Element**, Element**) { data = 0; size = 0; }
-};
-
-template<ElType N>
-struct FuncData; // { static constexpr bool is_empty_funcdata = true; };
-
-#define FUNCELDATA(NAME, TYPENUM) \
-STRUCTELDATA(NAME, TYPENUM) \
-{ \
-    std::nullptr_t* int_data{nullptr}; \
-    Element* ext_data{nullptr}; \
-    void init(Element* ed) { ext_data = ed; } \
-    void dealloc(Element** a, Element**) { *a = ext_data; free(int_data); ext_data = nullptr; int_data = nullptr; } \
+namespace ElementConcept {
+template<ElType ET>
+class ElConcept;
 }
 
-#define FUNCELDATA_FUNCDATA(NAME, TYPENUM, FUNCDATA) \
-template<> struct FuncData<TYPENUM> { FUNCDATA; }; \
-STRUCTELDATA(NAME, TYPENUM) \
-{ \
-    FuncData<NAME>* int_data{nullptr}; \
-    Element* ext_data{nullptr}; \
-    void init(Element* ed, FuncData<NAME>* id) { ext_data = ed; int_data = id; } \
-    void dealloc(Element** a, Element**) { *a = ext_data; free(int_data); ext_data = nullptr; int_data = nullptr; } \
-}
-
-FUNCELDATA(BLLEVAL, 5);
-FUNCELDATA(QUOTE, 6);
-FUNCELDATA_FUNCDATA(SHA256, 98, CSHA256 hasher);
-
-static_assert(ValidElData<BLLEVAL>);
-static_assert(ValidElData<SHA256>);
-
-// EXTATOM -- ATOM, but the data is unowned and shouldn't be freed
-// SMALLATOM -- ATOM, but no need for a pointer, just store the data directly
-// SIMPCONS -- CONS, but all children are either SIMPCONS or ATOM
-
-// smart, read-only Element pointers
-class ElRef
+class ElRefViewHelper
 {
 private:
-    Element* m_el{nullptr};
+    template<ElType ET>
+    static ElementConcept::ElConcept<ET> set_type(ElRef& er, int v);
 
-    // are these useful?
-    Element* copy_underlying()
+protected:
+    friend ElRef;
+    friend ElView;
+
+    static void decref(ElRef&& el); // recursively free elements
+
+    static ElBaseType elbasetype(ElType et, int variant);
+    static ElType eltype(ElBaseType basetype);
+
+    /* If ev had type ET, then return it as an ET, otherwise nullopt */
+    template<ElType ET>
+    static std::optional<ElementConcept::ElConcept<ET>> convert(ElView ev);
+
+    template<ElType ET, int V, bool O, typename... T>
+    static ElementConcept::ElConcept<ET> init_as(ElRefView<O>& er, T&&... args)
     {
-        return Element::bumpref(m_el);
+        ElementConcept::ElConcept<ET> res = set_type<ET>(er, V);
+
+        using ECV = ElementConcept::ElConcept<ET>::template Variant<V>;
+        er.template inplace_new<typename ECV::ElData>(std::forward<decltype(args)>(args)...);
+
+        return res;
     }
+};
+
+template<bool OWNED>
+class ElRefView
+{
+private:
+    static constexpr bool owned = OWNED;
+
+    friend class ElRefView<!OWNED>;
+    friend class ElRefViewHelper;
+
+    Elem* m_el{nullptr};
 
 public:
-    bool is_nullptr() const { return m_el == nullptr; }
+    ElRefView() = default;
 
-    bool is_error() const { return m_el && m_el->get_type() == ERROR; }
+    static ElRef takeover(Elem* el)
+    {
+        ElRef er;
+        er.m_el = el;
+        return er.move();
+    }
 
-    ElRef() = default;
+    ~ElRefView()
+    {
+        if (m_el != nullptr) reset();
+    }
 
-    ElRef(ElRef&& other)
+    void reset()
+    {
+        if constexpr (OWNED) ElRefViewHelper::decref(std::move(*this));
+        m_el = nullptr;
+    }
+
+    // creating an owned copy requires moving from an owned element
+    explicit ElRefView(ElRef&& other) requires(OWNED)
     {
         m_el = other.m_el;
         other.m_el = nullptr;
     }
 
-    explicit ElRef(ElRef& other)
-    {
-        m_el = Element::bumpref(other.m_el);
-    }
-
-    explicit ElRef(Element*&& other)
+    explicit ElRefView(Elem*&& other) requires(OWNED)
     {
         m_el = other;
         other = nullptr;
     }
 
-    ElRef& operator=(ElRef& other)
+    ElRef& operator=(ElRef&& other) requires(OWNED)
     {
-        if (m_el != other.m_el) {
-            Element::deref(m_el);
-            m_el = Element::bumpref(other.m_el);
-        }
+        m_el = other.m_el;
+        other.m_el = nullptr;
         return *this;
     }
 
-    ElRef& operator=(ElRef&& other)
+    // creating a view just requires something to view, and a lifetimebound
+    template<bool O>
+    explicit ElRefView(const ElRefView<O>& other LIFETIMEBOUND) requires(!OWNED)
     {
-        Element::deref(m_el);
-        m_el = Element::bumpref(other.m_el);
+        m_el = other.m_el;
+    }
+
+    explicit ElRefView(Elem* other LIFETIMEBOUND) requires(!OWNED)
+    {
+        m_el = other;
+    }
+
+    ElView& operator=(ElView& other) requires(!OWNED)
+    {
+        m_el = other.m_el;
         return *this;
     }
 
-
-    ~ElRef() {
-        Element::deref(m_el);
+    template<typename ElData, typename... T>
+    ElData* inplace_new(T&&... args)
+    {
+        return new (m_el) ElData{std::forward<decltype(args)>(args)...};
     }
 
     ElRef copy()
     {
-        return ElRef{Element::bumpref(m_el)};
+        Elem* cp = m_el;
+        if (cp) cp->incref();
+        return ElRef{std::move(cp)};
     }
 
-    operator Element*() &&
+    // allows writing `return x.move();` instead of having
+    // to write `return ElRef{std::move(x)};` due to the move
+    // constructor being explicit
+    ElRef move() requires(OWNED)
     {
-        Element* el = m_el;
-        m_el = nullptr;
-        return el;
+        return ElRef{std::move(*this)};
     }
 
-    template<ElType T>
-    const ElData<T>* get()
+    ElView view() const LIFETIMEBOUND
     {
-        return (m_el ? m_el->get<T>() : nullptr);
+        return ElView{m_el};
     }
 
-    template<typename R=void, typename Fn>
-    R visit(Fn&& fn)
+    operator bool() const { return m_el != nullptr; }
+
+    ElType eltype() const
     {
-        if (!m_el) return R();
-        m_el->visit([&](const auto* d) { return fn(d); });
+        return ElRefViewHelper::eltype(m_el->get_type());
+    }
+
+    bool is_error() const { return eltype() == ElType::ERROR; }
+
+    template<ElType ET, int V, typename... T>
+    ElementConcept::ElConcept<ET> init_as(T&&... args)
+    {
+        return ElRefViewHelper::init_as<ET,V>(*this, std::forward<decltype(args)>(args)...);
+    }
+
+    template<ElType ET>
+    auto get() LIFETIMEBOUND { return ElRefViewHelper::convert<ET>(view()); }
+
+    template<typename Fn>
+    void visit(Fn&& fn)
+    {
+        using enum ElType;
+
+        switch (eltype()) {
+        case ATOM: return fn(*get<ATOM>());
+        case CONS: return fn(*get<CONS>());
+        case ERROR: return fn(*get<ERROR>());
+        case FUNC: return fn(*get<FUNC>());
+        }
+    }
+
+    template <typename... Ts, typename... Fs>
+    constexpr decltype(auto) operator| (util::Overloaded<Fs...> const& match) {
+        return visit(match);
     }
 };
 
@@ -307,4 +242,37 @@ public:
            ...
        }
    } // decrement x's refcount as b is RAII'ed
+
+
+   class op_add {
+       static ElRef func(Arena& arena, ElRef&& state, ElRef&& args)
+       {
+           auto st = state.get<ATOM>();
+           if (!st) return arena.Error(INTERNAL);
+
+           if (auto argc = args.get<CONS>()) {
+               if (auto arg = argc.left.get<ATOM>()) {
+                    bignum res{bignum{st.data()} + bignum{arg.data()}};
+                    return arena.Func<op_add>(arena.Atom(res));
+               } else {
+                    return arena.Error(EXPECTED_ATOM);
+               }
+           } else if (args.is_nil()) {
+               return std::move(state);
+           } else {
+               return arena.Error(EXPECTED_PROPER_LIST);
+           }
+       }
+   };
+
+----
+   I want:
+      * concepts: atom, cons, error, func
+      * memory repr: {atom, small atom, ext atom} {cons, simp cons} {func func-stateful}
+      * detailed implementations: (op_add, etc)
+         -- structure?
+
+   detailed implementation{uint8_t} -> memory repr -> type
  */
+
+#endif // ELEMENT_H

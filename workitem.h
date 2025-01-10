@@ -1,4 +1,6 @@
+#include <elem.h>
 #include <element.h>
+#include <elconcept.h>
 
 #include <array>
 #include <optional>
@@ -10,21 +12,18 @@ private:
     ElRef m_nil;
 
 public:
-    template<ElType ET, typename... T>
-    ElRef New(T&&... args) 
+    Arena();
+
+    template<ElType ET, int Variant, typename... T>
+    ElRef New(T&&... args)
     {
-        Element* el = new Element;
-        auto& eldata = el->force_as<ET>();
-        eldata.init(std::forward<decltype(args)>(args)...);
-        return ElRef{std::move(el)};
+        Elem* el = new Elem;
+        ElRef res{std::move(el)};
+        res.template init_as<ET, Variant>(std::forward<decltype(args)>(args)...);
+        return res.move();
     }
 
-    ElRef nil() {
-        if (m_nil.is_nullptr()) {
-            m_nil = New<SMLATOM>(0);
-        }
-        return ElRef{m_nil};
-    }
+    ElRef nil() { return m_nil.copy(); }
 };
 
 struct Continuation
@@ -32,6 +31,10 @@ struct Continuation
     ElRef func;
     ElRef args;
     ElRef env;
+
+    Continuation(ElRef&& func, ElRef&& args, ElRef&& env) : func{std::move(func)}, args{std::move(args)}, env{std::move(env)} { }
+    Continuation(Continuation&& cont) = default;
+    ~Continuation() = default;
 };
 
 class WorkItem
@@ -47,7 +50,7 @@ private:
     {
         ElRef res{*std::move(feedback)};
         feedback.reset();
-        return res;
+        return res.move();
     }
 
     Continuation pop_continuation()
@@ -57,8 +60,10 @@ private:
         return c;
     }
 
-    void cont(Continuation&& cont, ElRef feedback);
-    void step(Continuation&& cont);
+    template<ElType ET> struct Logic;
+
+    template<ElType ET>
+    void step(ElementConcept::ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback);
 
 public:
     explicit WorkItem(ElRef&& sexpr, ElRef&& env)
@@ -72,10 +77,13 @@ public:
         continuations.emplace_back(std::move(func), std::move(args), std::move(env));
     }
 
+    void eval_sexpr(ElRef&& sexpr, ElRef&& env);
+#if 0
     void eval_sexpr(ElRef&& sexpr, ElRef&& env)
     {
-        new_continuation(arena.New<BLLEVAL>(arena.nil()), std::move(sexpr), std::move(env));
+        new_continuation(arena.New<FUNC,OP_BLLEVAL>(arena.nil()), std::move(sexpr), std::move(env));
     }
+#endif
 
     void fin_value(ElRef&& val)
     {
@@ -84,19 +92,11 @@ public:
 
     void error()
     {
-        fin_value(arena.New<ERROR>());
+        using enum ElType;
+        fin_value(arena.New<ERROR,0>());
     }
 
-    void step()
-    {
-        if (continuations.empty()) return;
+    void cont();
 
-        if (feedback) {
-            cont(pop_continuation(), pop_feedback());
-        } else {
-            step(pop_continuation());
-        }
-    }
 };
-
 
