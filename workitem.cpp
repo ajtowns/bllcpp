@@ -9,21 +9,6 @@ Arena::Arena()
     m_nil = New<ATOM,0>(int64_t{0});
 }
 
-#if 0
-template<ElType ET>
-struct ElCont
-{
-    static void cont(const ElData<ET>* eldata, ElRef&& args, ElRef&& env, ElRef&& feedback, WorkItem& wi)
-    {
-        // XXX I don't think this is right -- should be fin_value(eldata), except eldata would need to be an ElRef...
-        //     and in any event, I think I want to have <FUNC> be a single type
-        (void)eldata; (void)env; (void) feedback;
-        wi.fin_value(std::move(args));
-    }
-};
-
-#endif
-
 template<ElType ET>
 struct WorkItem::Logic
 {
@@ -73,4 +58,3 @@ void WorkItem::cont()
         }
     );
 }
-

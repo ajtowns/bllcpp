@@ -21,6 +21,28 @@ class WorkItem;
 
 namespace ElementConcept {
 
+template<typename T, T MAX, T MIN=0>
+struct BoundedValue
+{
+    static_assert(MIN < MAX);
+
+    const T v;
+
+    explicit (false) constexpr BoundedValue(const T& v) : v{v}
+    {
+        if (v < MIN) throw std::out_of_range("BoundedValue out of range");
+        if (v >= MAX) throw std::out_of_range("BoundedValue out of range");
+    }
+
+    explicit (false) constexpr operator T() const
+    {
+        return v;
+    }
+};
+
+template<unsigned int MAX>
+using BoundedUint = struct BoundedValue<unsigned int, MAX, 0>;
+
 using enum ElType;
 
 template<ElType Target>
@@ -58,8 +80,8 @@ class ElConcept<ATOM> : public ElConceptParent<ElConcept<ATOM>>
 {
 public:
     static constexpr int variants = 1;
+    template<BoundedUint<variants> V> struct Variant;
 
-    template<int V> struct Variant;
     template<> struct Variant<0>
     {
         struct ElData {
@@ -81,8 +103,7 @@ class ElConcept<CONS> : public ElConceptParent<ElConcept<CONS>>
 {
 public:
     static constexpr int variants = 1;
-
-    template<int V> struct Variant;
+    template<BoundedUint<variants> V> struct Variant;
 
     template<> struct Variant<0>
     {
@@ -107,8 +128,7 @@ class ElConcept<ERROR> : public ElConceptParent<ElConcept<ERROR>>
 {
 public:
     static constexpr int variants = 1;
-
-    template<int V> struct Variant;
+    template<BoundedUint<variants> V> struct Variant;
 
     template<> struct Variant<0>
     {
@@ -128,6 +148,7 @@ class ElConcept<FUNC> : public ElConceptParent<ElConcept<FUNC>>
 {
 public:
     static constexpr int variants = 1; // XXX
+    template<BoundedUint<variants> V> struct Variant;
 
     // parent's constructor
     using ElConceptParent<ElConcept<FUNC>>::ElConceptParent;
