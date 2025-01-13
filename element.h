@@ -23,23 +23,34 @@ template<bool OWNED> class ElRefView;
 using ElRef = ElRefView<true>;
 using ElView = ElRefView<false>;
 
-enum class ElType : ElBaseType {
-    ATOM,
-    CONS,
-    ERROR,
-    FUNC,
-};
+struct ElTypeTag { };
+struct ATOM : ElTypeTag { };
+struct CONS : ElTypeTag { };
+struct ERROR : ElTypeTag { };
+struct FUNC : ElTypeTag { };
 
-namespace ElementConcept {
-template<ElType ET>
+using ElTypeOrder = std::tuple<ATOM,CONS,ERROR,FUNC>;
+
+template<typename T>
+concept ElType = std::is_base_of_v<ElTypeTag,T>;
+
+template<uint8_t>
+class Bounded;
+
+template<ElType>
+struct ElConceptDef;
+
+template<ElType>
 class ElConcept;
-}
+
+template<ElType ET,Bounded<ElConceptDef<ET>::variants> V>
+struct ElVariant;
 
 class ElRefViewHelper
 {
 private:
     template<ElType ET>
-    static ElementConcept::ElConcept<ET> set_type(ElRef& er, int v);
+    static ElConcept<ET> set_type(ElRef& er, typename ElConcept<ET>::V v);
 
 protected:
     friend ElRef;
@@ -47,22 +58,40 @@ protected:
 
     static void decref(ElRef&& el); // recursively free elements
 
-    static ElBaseType elbasetype(ElType et, int variant);
-    static ElType eltype(ElBaseType basetype);
-
-    /* If ev had type ET, then return it as an ET, otherwise nullopt */
+    /* return it as an ET, having already check that it's in range */
     template<ElType ET>
-    static std::optional<ElementConcept::ElConcept<ET>> convert(ElView ev);
+    static ElConcept<ET> convert(const ElView& ev LIFETIMEBOUND);
 
     template<ElType ET, int V, bool O, typename... T>
-    static ElementConcept::ElConcept<ET> init_as(ElRefView<O>& er, T&&... args)
+    static ElConcept<ET> init_as(ElRefView<O>& er, T&&... args)
     {
-        ElementConcept::ElConcept<ET> res = set_type<ET>(er, V);
+        ElConcept<ET> res = set_type<ET>(er, V);
 
-        using ECV = ElementConcept::ElConcept<ET>::template Variant<V>;
+        using ECV = ElVariant<ET,V>;
         er.template inplace_new<typename ECV::ElData>(std::forward<decltype(args)>(args)...);
 
         return res;
+    }
+
+    template<typename Fn>
+    static constexpr void per_type(Fn&& fn)
+    {
+        std::apply([&](auto&&... args) { (fn(args), ...); }, ElTypeOrder{});
+    }
+
+    template<ElType Target>
+    static consteval int concept_offset()
+    {
+        int offset = 0;
+        bool done = false;
+        per_type(util::Overloaded(
+            [&](Target) { done = true; },
+            [&](auto et) {
+                if (!done) offset += ElConcept<decltype(et)>::variants;
+            }
+        ));
+        if (!done) throw std::out_of_range("not a valid ElType");
+        return offset;
     }
 };
 
@@ -74,6 +103,7 @@ private:
 
     friend class ElRefView<!OWNED>;
     friend class ElRefViewHelper;
+    friend class ElConceptHelper;
 
     Elem* m_el{nullptr};
 
@@ -164,33 +194,41 @@ public:
 
     operator bool() const { return m_el != nullptr; }
 
-    ElType eltype() const
-    {
-        return ElRefViewHelper::eltype(m_el->get_type());
-    }
-
-    bool is_error() const { return eltype() == ElType::ERROR; }
-
     template<ElType ET, int V, typename... T>
-    ElementConcept::ElConcept<ET> init_as(T&&... args)
+    ElConcept<ET> init_as(T&&... args)
     {
         return ElRefViewHelper::init_as<ET,V>(*this, std::forward<decltype(args)>(args)...);
     }
 
     template<ElType ET>
-    auto get() LIFETIMEBOUND { return ElRefViewHelper::convert<ET>(view()); }
+    bool is()
+    {
+        if (!m_el) return false;
+
+        constexpr auto offset = ElRefViewHelper::concept_offset<ET>();
+        return (offset <= m_el->get_type() && m_el->get_type() < offset + ElConcept<ET>::variants);
+    }
+
+    template<ElType ET>
+    std::optional<ElConcept<ET>> get() LIFETIMEBOUND
+    {
+        if (is<ET>()) {
+            return ElRefViewHelper::convert<ET>(view());
+        } else {
+            return std::nullopt;
+        }
+    }
 
     template<typename Fn>
     void visit(Fn&& fn)
     {
-        using enum ElType;
-
-        switch (eltype()) {
-        case ATOM: return fn(*get<ATOM>());
-        case CONS: return fn(*get<CONS>());
-        case ERROR: return fn(*get<ERROR>());
-        case FUNC: return fn(*get<FUNC>());
-        }
+        if (!m_el) return;
+        ElRefViewHelper::per_type([&](auto et) {
+            using ET = decltype(et);
+            if (is<ET>()) {
+                fn(ElRefViewHelper::convert<ET>(view()));
+            }
+        });
     }
 
     template <typename... Ts, typename... Fs>
@@ -198,6 +236,9 @@ public:
         return visit(match);
     }
 };
+
+static_assert(sizeof(ElRef) == sizeof(Elem*));
+static_assert(sizeof(ElView) == sizeof(Elem*));
 
 /* todo:
  *   Allocator param for elements and data, to track memory usage etc

@@ -1,9 +1,3 @@
-/* element arena
- *
- * creates a fixed size arena, which
- * stores refcounted elements of type ATOM, CONS, ERROR, FUNCx
- */
-
 #ifndef ELCONCEPT_H
 #define ELCONCEPT_H
 
@@ -19,23 +13,35 @@
 
 class WorkItem;
 
-namespace ElementConcept {
-
-using enum ElType;
-
-template<unsigned int MAX>
-struct Bounded
+template<ElBaseType _MAX>
+class Bounded
 {
-    using T = unsigned int;
+private:
+    using T = ElBaseType;
 
-    static_assert(MAX > 0);
+    struct internal_only_tag {};
+    static constexpr  internal_only_tag internal_only;
 
+    explicit Bounded(const T& v, internal_only_tag) : v{v} { }
+
+public:
     const T v;
 
-    explicit (false) constexpr Bounded(const T& v) : v{v}
+    static constexpr T MAX{_MAX};
+    static_assert(MAX > 0);
+    static constexpr T LAST{_MAX-1};
+
+    static Bounded make_checked(const T& checked) { return Bounded{checked, internal_only}; }
+
+    constexpr Bounded() : v{0} { };
+    constexpr Bounded(const Bounded& v) : v{v.v} { }
+    constexpr Bounded(Bounded&& v) : v{v.v} { }
+
+    explicit (false) consteval Bounded(const T& v) : v{v}
     {
         if (v >= MAX) throw std::out_of_range("out of range");
     }
+
 
     explicit (false) constexpr operator T() const
     {
@@ -43,40 +49,47 @@ struct Bounded
     }
 };
 
+
+template<ElType>
+struct ElConceptDef;
+
+template<> struct ElConceptDef<ATOM> { static constexpr ElBaseType variants = 1; };
+template<> struct ElConceptDef<CONS> { static constexpr ElBaseType variants = 1; };
+template<> struct ElConceptDef<ERROR> { static constexpr ElBaseType variants = 1; };
+template<> struct ElConceptDef<FUNC> { static constexpr ElBaseType variants = 1; };
+
 template<ElType ET>
 class ElConcept;
 
-template<typename EC>
+template<ElType _ET>
 class ElConceptParent
 {
-protected:
-    int variant;
-    ElView elview;
-
 public:
-    ElConceptParent(int variant, ElRef& er LIFETIMEBOUND) : variant{variant}, elview{er.view()} { }
-    ElConceptParent(int variant, ElView& ev LIFETIMEBOUND) : variant{variant}, elview{ev} { }
+    using ET = _ET;
+    static constexpr ElBaseType variants{ElConceptDef<ET>::variants};
+    using V = Bounded<variants>;
+
+    template<bool O>
+    ElConceptParent(const V& variant, const ElRefView<O>& er LIFETIMEBOUND) : variant{variant}, elview{er.view()} { }
 
     ElRef copy() { return elview.copy(); }
+
+protected:
+    const V variant;
+    ElView elview;
+
+    friend class ElConceptHelper;
 };
 
+template<ElType ET, Bounded<ElConceptDef<ET>::variants> V>
+struct ElVariant;
+
 template<>
-class ElConcept<ATOM> : public ElConceptParent<ElConcept<ATOM>>
+class ElConcept<ATOM> : public ElConceptParent<ATOM>
 {
 public:
-    static constexpr int variants = 1;
-    template<Bounded<variants> V> struct Variant;
-
-    template<> struct Variant<0>
-    {
-        struct ElData {
-            int64_t n{0};
-            ElData(int64_t n) : n{n} { };
-        };
-    };
-
     // parent's constructor
-    using ElConceptParent<ElConcept<ATOM>>::ElConceptParent;
+    using ElConceptParent<ATOM>::ElConceptParent;
 
     void dealloc(ElRef&, ElRef&) { return; }
 
@@ -84,65 +97,57 @@ public:
 };
 
 template<>
-class ElConcept<CONS> : public ElConceptParent<ElConcept<CONS>>
+class ElConcept<CONS> : public ElConceptParent<CONS>
 {
 public:
-    static constexpr int variants = 1;
-    template<Bounded<variants> V> struct Variant;
+    // parent's constructor
+    using ElConceptParent<CONS>::ElConceptParent;
 
-    template<> struct Variant<0>
-    {
-        struct ElData {
-            ElRef left, right;
-            ElData(ElRef&& left, ElRef&& right) : left{left.move()}, right{right.move()} { }
-        };
-    };
-
-    // data members
-    ElView left, right;
-
-    // custom constructor to populate left/right
-    ElConcept(int variant, ElView& ev LIFETIMEBOUND);
-    ElConcept(int variant, ElRef& ev LIFETIMEBOUND);
+    ElView left();
+    ElView right();
 
     void dealloc(ElRef& child1, ElRef& child2);
 };
 
 template<>
-class ElConcept<ERROR> : public ElConceptParent<ElConcept<ERROR>>
+class ElConcept<ERROR> : public ElConceptParent<ERROR>
 {
 public:
-    static constexpr int variants = 1;
-    template<Bounded<variants> V> struct Variant;
-
-    template<> struct Variant<0>
-    {
-        struct ElData { };
-    };
-
     // parent's constructor
-    using ElConceptParent<ElConcept<ERROR>>::ElConceptParent;
+    using ElConceptParent<ERROR>::ElConceptParent;
 
     void dealloc(ElRef&, ElRef&) { };
-
-    // XXX...
 };
 
 template<>
-class ElConcept<FUNC> : public ElConceptParent<ElConcept<FUNC>>
+class ElConcept<FUNC> : public ElConceptParent<FUNC>
 {
 public:
-    static constexpr int variants = 1; // XXX
-    template<Bounded<variants> V> struct Variant;
-
     // parent's constructor
-    using ElConceptParent<ElConcept<FUNC>>::ElConceptParent;
+    using ElConceptParent<FUNC>::ElConceptParent;
 
     void dealloc(ElRef& child1, ElRef& child2);
-
-    // XXX...
 };
 
-} // namespace ElementConcept
+// variant details --> some other .h file probably
+
+template<> struct ElVariant<ATOM,0>
+{
+    struct ElData {
+        int64_t n{0};
+        ElData(int64_t n) : n{n} { };
+    };
+};
+template<> struct ElVariant<CONS,0>
+{
+    struct ElData {
+        ElRef left, right;
+        ElData(ElRef&& left, ElRef&& right) : left{left.move()}, right{right.move()} { }
+    };
+};
+template<> struct ElVariant<ERROR,0>
+{
+    struct ElData { };
+};
 
 #endif // ELCONCEPT_H

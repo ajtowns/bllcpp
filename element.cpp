@@ -12,84 +12,32 @@
 #include <limits>
 #include <memory>
 
-using enum ElType;
-using namespace ElementConcept;
-
-static constexpr ElType MAX_ELTYPE{FUNC};
-
-template<ElType Target, ElType ET=static_cast<ElType>(0)>
-static consteval int concept_offset()
-{
-    if constexpr (ET == Target) {
-        return 0;
-    } else if constexpr (ET != MAX_ELTYPE) {
-        constexpr ElType NEXT{static_cast<int>(ET) + 1};
-        return ElConcept<ET>::variants + concept_offset<Target,NEXT>();
-    } else {
-        static_assert(false);
-    }
-}
-
-template<ElType ET=static_cast<ElType>(0)>
-static ElType get_eltype(ElBaseType basetype)
-{
-    if constexpr (ET == MAX_ELTYPE) {
-        return ET;
-    } else if (basetype < concept_offset<ET>() + ElConcept<ET>::variants) {
-        return ET;
-    } else {
-        constexpr ElType NEXT{static_cast<int>(ET) + 1};
-        return get_eltype<NEXT>(basetype);
-    }
-}
-
-ElBaseType ElRefViewHelper::elbasetype(ElType et, int variant)
-{
-    switch (et) {
-    case ATOM: return concept_offset<ATOM>() + variant;
-    case CONS: return concept_offset<CONS>() + variant;
-    case ERROR: return concept_offset<ERROR>() + variant;
-    case FUNC: return concept_offset<FUNC>() + variant;
-    }
-    return std::numeric_limits<ElBaseType>::max();
-}
-
-ElType ElRefViewHelper::eltype(ElBaseType basetype)
-{
-    return get_eltype(basetype);
-}
-
 template<ElType ET>
-std::optional<ElConcept<ET>> ElRefViewHelper::convert(ElView ev)
+ElConcept<ET> ElRefViewHelper::convert(const ElView& ev)
 {
     constexpr int offset = concept_offset<ET>();
-    if (ev.m_el) {
-        const auto type = ev.m_el->get_type();
-        if (offset <= type && type < offset + ElConcept<ET>::variants) {
-            const int variant = type - offset;
-            return ElConcept<ET>(variant, ev);
-        }
-    }
-    return std::nullopt;
+    using EC = ElConcept<ET>;
+    const typename EC::V variant = EC::V::make_checked(ev.m_el->get_type() - offset);
+    return EC(variant, ev);
 }
 
+template ElConcept<ATOM> ElRefViewHelper::convert(const ElView& ev);
+template ElConcept<CONS> ElRefViewHelper::convert(const ElView& ev);
+template ElConcept<ERROR> ElRefViewHelper::convert(const ElView& ev);
+template ElConcept<FUNC> ElRefViewHelper::convert(const ElView& ev);
+
 template<ElType ET>
-ElementConcept::ElConcept<ET> ElRefViewHelper::set_type(ElRef& er, int variant)
+ElConcept<ET> ElRefViewHelper::set_type(ElRef& er, typename ElConcept<ET>::V variant)
 {
     constexpr int offset = concept_offset<ET>();
     er.m_el->set_type(offset + variant);
     return ElConcept<ET>(variant, er);
 }
 
-template std::optional<ElConcept<ATOM>> ElRefViewHelper::convert(ElView ev);
-template std::optional<ElConcept<CONS>> ElRefViewHelper::convert(ElView ev);
-template std::optional<ElConcept<ERROR>> ElRefViewHelper::convert(ElView ev);
-template std::optional<ElConcept<FUNC>> ElRefViewHelper::convert(ElView ev);
-
-template ElementConcept::ElConcept<ATOM> ElRefViewHelper::set_type(ElRef& ev, int variant);
-template ElementConcept::ElConcept<CONS> ElRefViewHelper::set_type(ElRef& ev, int variant);
-template ElementConcept::ElConcept<ERROR> ElRefViewHelper::set_type(ElRef& ev, int variant);
-template ElementConcept::ElConcept<FUNC> ElRefViewHelper::set_type(ElRef& ev, int variant);
+template ElConcept<ATOM> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<ATOM>::V variant);
+template ElConcept<CONS> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<CONS>::V variant);
+template ElConcept<ERROR> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<ERROR>::V variant);
+template ElConcept<FUNC> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<FUNC>::V variant);
 
 void ElRefViewHelper::decref(ElRef&& el)
 {
@@ -131,21 +79,29 @@ void ElRefViewHelper::decref(ElRef&& el)
     }
 }
 
-void test(ElRef&& er)
+class ElConceptHelper
 {
-    ElRef left, right;
-    er | util::Overloaded(
-        [&](ElConcept<CONS> cons) {
-            left = cons.left.copy();
-            right = cons.right.copy();
-        },
-        [&](auto) {
-            // no-op
+public:
+    template<typename EC, EC::V V=0, typename Fn>
+    static void mutate(EC& ec, Fn&& fn)
+    {
+        if (ec.variant == V) return fn(ec.elview.m_el->template data<typename ElVariant<typename EC::ET,V>::ElData>());
+        if constexpr (V < V.LAST) {
+            return mutate<EC,V+1>(ec, fn);
         }
-    );
-    if (left && right) {
-        er.reset();
-        // ...
     }
+};
+
+void ElConcept<CONS>::dealloc(ElRef& child1, ElRef& child2)
+{
+    ElConceptHelper::mutate(*this, [&](ElVariant<CONS,0>::ElData& eld) {
+        child1 = eld.left.move();
+        child2 = eld.right.move();
+    });
 }
 
+void ElConcept<FUNC>::dealloc(ElRef& child1, ElRef& child2)
+{
+    (void)child1; (void)child2;
+    return;
+}

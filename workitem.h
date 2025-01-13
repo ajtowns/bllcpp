@@ -63,7 +63,7 @@ private:
     template<ElType ET> struct Logic;
 
     template<ElType ET>
-    void step(ElementConcept::ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback);
+    void step(ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback);
 
 public:
     explicit WorkItem(ElRef&& sexpr, ElRef&& env)
@@ -92,7 +92,6 @@ public:
 
     void error()
     {
-        using enum ElType;
         fin_value(arena.New<ERROR,0>());
     }
 

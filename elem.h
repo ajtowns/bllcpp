@@ -41,6 +41,7 @@ public:
 
     template<typename ElData> auto& data() LIFETIMEBOUND { return *Elem::dataptr<ElData>(*this); }
     template<typename ElData> auto& data() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
+    template<typename ElData> auto& cdata() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
 };
 
 #endif // ELEM_H
