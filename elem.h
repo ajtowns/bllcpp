@@ -18,7 +18,7 @@ private:
     struct GenElData { void* a; void* b; };
 
     uint32_t refcount{1};
-    ElBaseType type{std::numeric_limits<ElBaseType>::max()};
+    ElBaseType type{0};
     alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
 
     template<typename ElData>

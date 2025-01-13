@@ -21,17 +21,20 @@ class WorkItem;
 
 namespace ElementConcept {
 
-template<typename T, T MAX, T MIN=0>
-struct BoundedValue
+using enum ElType;
+
+template<unsigned int MAX>
+struct Bounded
 {
-    static_assert(MIN < MAX);
+    using T = unsigned int;
+
+    static_assert(MAX > 0);
 
     const T v;
 
-    explicit (false) constexpr BoundedValue(const T& v) : v{v}
+    explicit (false) constexpr Bounded(const T& v) : v{v}
     {
-        if (v < MIN) throw std::out_of_range("BoundedValue out of range");
-        if (v >= MAX) throw std::out_of_range("BoundedValue out of range");
+        if (v >= MAX) throw std::out_of_range("out of range");
     }
 
     explicit (false) constexpr operator T() const
@@ -39,24 +42,6 @@ struct BoundedValue
         return v;
     }
 };
-
-template<unsigned int MAX>
-using BoundedUint = struct BoundedValue<unsigned int, MAX, 0>;
-
-using enum ElType;
-
-template<ElType Target>
-consteval int ConceptOffset()
-{
-    constexpr int N = static_cast<int>(Target);
-    static_assert(N > 0);
-    if constexpr (N == 0) {
-        return 0;
-    } else {
-        constexpr ElType Prev{N-1};
-        return ConceptOffset<Prev>() + ElConcept<Prev>::variants;
-    }
-}
 
 template<ElType ET>
 class ElConcept;
@@ -80,7 +65,7 @@ class ElConcept<ATOM> : public ElConceptParent<ElConcept<ATOM>>
 {
 public:
     static constexpr int variants = 1;
-    template<BoundedUint<variants> V> struct Variant;
+    template<Bounded<variants> V> struct Variant;
 
     template<> struct Variant<0>
     {
@@ -93,7 +78,7 @@ public:
     // parent's constructor
     using ElConceptParent<ElConcept<ATOM>>::ElConceptParent;
 
-    void dealloc(ElRef& child1, ElRef& child2);
+    void dealloc(ElRef&, ElRef&) { return; }
 
     Span<const uint8_t> data() const;
 };
@@ -103,7 +88,7 @@ class ElConcept<CONS> : public ElConceptParent<ElConcept<CONS>>
 {
 public:
     static constexpr int variants = 1;
-    template<BoundedUint<variants> V> struct Variant;
+    template<Bounded<variants> V> struct Variant;
 
     template<> struct Variant<0>
     {
@@ -128,7 +113,7 @@ class ElConcept<ERROR> : public ElConceptParent<ElConcept<ERROR>>
 {
 public:
     static constexpr int variants = 1;
-    template<BoundedUint<variants> V> struct Variant;
+    template<Bounded<variants> V> struct Variant;
 
     template<> struct Variant<0>
     {
@@ -148,7 +133,7 @@ class ElConcept<FUNC> : public ElConceptParent<ElConcept<FUNC>>
 {
 public:
     static constexpr int variants = 1; // XXX
-    template<BoundedUint<variants> V> struct Variant;
+    template<Bounded<variants> V> struct Variant;
 
     // parent's constructor
     using ElConceptParent<ElConcept<FUNC>>::ElConceptParent;
