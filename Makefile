@@ -1,5 +1,5 @@
 
-ALL: element.o workitem.o
+ALL: main
 
 element.o: element.h
 workitem.o: workitem.h element.h

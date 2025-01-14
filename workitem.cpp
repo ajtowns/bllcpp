@@ -42,12 +42,13 @@ void WorkItem::step(ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedba
 
 void WorkItem::cont()
 {
-    if (continuations.empty()) return;
+    if (continuations.empty()) return; // nothing to do
 
     Continuation cont{pop_continuation()};
     ElRef fb{pop_feedback()};
 
     if (fb.is<ERROR>()) {
+         // shortcut
          while (!continuations.empty()) pop_continuation();
          fin_value(std::move(fb));
          return;

@@ -17,9 +17,10 @@ class Elem
 private:
     struct GenElData { void* a; void* b; };
 
+    alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
+
     uint32_t refcount{1};
     ElBaseType type{0};
-    alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
 
     template<typename ElData>
     static constexpr bool SaneElData = sizeof(ElData) <= sizeof(GenElData) && alignof(ElData) <= alignof(GenElData);

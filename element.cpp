@@ -7,6 +7,8 @@
 #include <element.h>
 #include <elconcept.h>
 
+#include <logging.h>
+
 #include <stddef.h>
 #include <stdint.h>
 #include <limits>
@@ -44,6 +46,7 @@ void ElRefViewHelper::decref(ElRef&& el)
     ElRef rest{nullptr};
 
     while (el) {
+LogTrace(BCLog::BLL, "decref %p refcount=%d\n", el.m_el, el.m_el->get_refcount());
         if (!el.m_el->decref()) {
             el.m_el = nullptr;
         } else {
@@ -59,11 +62,13 @@ void ElRefViewHelper::decref(ElRef&& el)
                 b.m_el = nullptr;
             }
             if (a && b) {
+                el.m_el->incref(); // need to keep this around for a bit
                 ElRefViewHelper::init_as<CONS,0>(el, std::move(b), std::move(rest));
                 rest = el.move();
                 el = a.move();
             } else {
                 if (b) a = b.move();
+                LogTrace(BCLog::BLL, "Deleted %d at %p\n", el.m_el->get_type(), el.m_el);
                 delete el.m_el; // XXX Allocator
                 el.m_el = nullptr;
                 el = a.move();
@@ -71,7 +76,8 @@ void ElRefViewHelper::decref(ElRef&& el)
         }
         while (!el && rest) {
             ElRef next{nullptr};
-            el.visit([&](auto d) { d.dealloc(el, next); });
+            rest.visit([&](auto d) { d.dealloc(el, next); });
+            LogTrace(BCLog::BLL, "Deleted (2) %d at %p\n", rest.m_el->get_type(), rest.m_el);
             delete rest.m_el; // XXX Allocator
             rest.m_el = nullptr;
             rest = next.move();

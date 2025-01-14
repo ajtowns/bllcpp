@@ -1,4 +1,5 @@
 
 element.o: elem.h element.h elconcept.h
 workitem.o: elem.h element.h elconcept.h workitem.h
+main.o: elem.h element.h elconcept.h workitem.h logging.h
 

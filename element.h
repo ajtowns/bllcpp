@@ -12,6 +12,8 @@
 #include <attributes.h>
 #include <overloaded.h>
 
+#include <logging.h>
+
 #include <limits>
 #include <memory>
 #include <optional>
@@ -69,7 +71,6 @@ protected:
 
         using ECV = ElVariant<ET,V>;
         er.template inplace_new<typename ECV::ElData>(std::forward<decltype(args)>(args)...);
-
         return res;
     }
 
@@ -124,7 +125,9 @@ public:
 
     void reset()
     {
-        if constexpr (OWNED) ElRefViewHelper::decref(std::move(*this));
+        if constexpr (OWNED) {
+            ElRefViewHelper::decref(std::move(*this));
+        }
         m_el = nullptr;
     }
 
@@ -175,7 +178,10 @@ public:
     ElRef copy()
     {
         Elem* cp = m_el;
-        if (cp) cp->incref();
+        if (cp) {
+            cp->incref();
+            LogTrace(BCLog::BLL, "copied elref %p refcount=%d\n", m_el, m_el->get_refcount());
+        }
         return ElRef{std::move(cp)};
     }
 

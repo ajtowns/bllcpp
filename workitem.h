@@ -2,6 +2,8 @@
 #include <element.h>
 #include <elconcept.h>
 
+#include <logging.h>
+
 #include <array>
 #include <optional>
 #include <vector>
@@ -13,14 +15,23 @@ private:
 
 public:
     Arena();
+    ~Arena() = default;
 
     template<ElType ET, int Variant, typename... T>
     ElRef New(T&&... args)
     {
         Elem* el = new Elem;
+        LogTrace(BCLog::BLL, "Created new %s at %p\n", typeid(ET).name(), el);
         ElRef res{std::move(el)};
         res.template init_as<ET, Variant>(std::forward<decltype(args)>(args)...);
         return res.move();
+    }
+
+    template<ElType ET, typename... T>
+    ElRef New(T&&... args)
+    {
+        static_assert(ElConcept<ET>::variants == 1);
+        return New<ET,0>(std::forward<decltype(args)>(args)...);
     }
 
     ElRef nil() { return m_nil.copy(); }
@@ -45,6 +56,11 @@ private:
 
     Arena arena;
     // costings
+
+    // CTransactionRef tx;
+    // int input_idx;
+    // std::vector<CTxOut> spent_coins;
+    //   -- no access to Coin's fCoinbase or nHeight?
 
     ElRef pop_feedback()
     {
