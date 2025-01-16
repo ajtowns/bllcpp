@@ -129,25 +129,4 @@ public:
     void dealloc(ElRef& child1, ElRef& child2);
 };
 
-// variant details --> some other .h file probably
-
-template<> struct ElVariant<ATOM,0>
-{
-    struct ElData {
-        int64_t n{0};
-        ElData(int64_t n) : n{n} { };
-    };
-};
-template<> struct ElVariant<CONS,0>
-{
-    struct ElData {
-        ElRef left, right;
-        ElData(ElRef&& left, ElRef&& right) : left{left.move()}, right{right.move()} { }
-    };
-};
-template<> struct ElVariant<ERROR,0>
-{
-    struct ElData { };
-};
-
 #endif // ELCONCEPT_H

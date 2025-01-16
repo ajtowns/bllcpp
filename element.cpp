@@ -6,6 +6,7 @@
 
 #include <element.h>
 #include <elconcept.h>
+#include <elimpl.h>
 
 #include <logging.h>
 

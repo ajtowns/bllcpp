@@ -1,6 +1,8 @@
 
 #include <element.h>
 #include <workitem.h>
+#include <elconcept.h>
+#include <elimpl.h>
 
 #include <logging.h>
 
