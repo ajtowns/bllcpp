@@ -21,7 +21,7 @@ public:
     ElRef New(T&&... args)
     {
         Elem* el = new Elem;
-        LogTrace(BCLog::BLL, "Created new %s at %p\n", typeid(ET).name(), el);
+        LogTrace(BCLog::BLL, "Created new %s at %p\n", ET::name, el);
         ElRef res{std::move(el)};
         res.template init_as<ET, Variant>(std::forward<decltype(args)>(args)...);
         return res.move();
@@ -35,6 +35,20 @@ public:
     }
 
     ElRef nil() { return m_nil.copy(); }
+
+    inline ElRef mkel(ElRef&& e) { return e.move(); }
+    inline ElRef mkel(int64_t v)
+    {
+        if (v == 0) return nil();
+        return New<ATOM>(v);
+    }
+
+    inline ElRef mklist() { return nil(); }
+    inline ElRef mklist(auto&& head, auto&&... args)
+    {
+        ElRef t = mklist(std::forward<decltype(args)>(args)...);
+        return New<CONS>(mkel(std::forward<decltype(head)>(head)), std::move(t));
+    }
 };
 
 struct Continuation

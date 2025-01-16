@@ -93,7 +93,7 @@ public:
 
     void dealloc(ElRef&, ElRef&) { return; }
 
-    Span<const uint8_t> data() const;
+    Span<const uint8_t> data() const LIFETIMEBOUND;
 };
 
 template<>

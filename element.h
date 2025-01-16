@@ -26,10 +26,10 @@ using ElRef = ElRefView<true>;
 using ElView = ElRefView<false>;
 
 struct ElTypeTag { };
-struct ATOM : ElTypeTag { };
-struct CONS : ElTypeTag { };
-struct ERROR : ElTypeTag { };
-struct FUNC : ElTypeTag { };
+struct ATOM : ElTypeTag { static constexpr std::string name = "ATOM"; };
+struct CONS : ElTypeTag { static constexpr std::string name = "CONS"; };
+struct ERROR : ElTypeTag { static constexpr std::string name = "ERROR"; };
+struct FUNC : ElTypeTag { static constexpr std::string name = "FUNC"; };
 
 using ElTypeOrder = std::tuple<ATOM,CONS,ERROR,FUNC>;
 
@@ -94,6 +94,8 @@ protected:
         if (!done) throw std::out_of_range("not a valid ElType");
         return offset;
     }
+
+    static std::string to_string(ElView ev, bool in_list=false);
 };
 
 template<bool OWNED>
@@ -163,7 +165,7 @@ public:
         m_el = other;
     }
 
-    ElView& operator=(ElView& other) requires(!OWNED)
+    ElView& operator=(ElView other) requires(!OWNED)
     {
         m_el = other.m_el;
         return *this;
@@ -215,6 +217,12 @@ public:
         return (offset <= m_el->get_type() && m_el->get_type() < offset + ElConcept<ET>::variants);
     }
 
+    bool is_nil()
+    {
+        auto *ec = get<ATOM>();
+        return (ec && ec->data().size() == 0);
+    }
+
     template<ElType ET>
     std::optional<ElConcept<ET>> get() LIFETIMEBOUND
     {
@@ -241,6 +249,8 @@ public:
     constexpr decltype(auto) operator| (util::Overloaded<Fs...> const& match) {
         return visit(match);
     }
+
+    std::string to_string() { return ElRefViewHelper::to_string(view()); };
 };
 
 static_assert(sizeof(ElRef) == sizeof(Elem*));
