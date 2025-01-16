@@ -27,6 +27,8 @@ private:
 public:
     const T v;
 
+    static consteval bool in_range(const T& val) { return 0 <= val && val < MAX; }
+
     static constexpr T MAX{_MAX};
     static_assert(MAX > 0);
     static constexpr T LAST{_MAX-1};
@@ -56,7 +58,20 @@ struct ElConceptDef;
 template<> struct ElConceptDef<ATOM> { static constexpr ElBaseType variants = 1; };
 template<> struct ElConceptDef<CONS> { static constexpr ElBaseType variants = 1; };
 template<> struct ElConceptDef<ERROR> { static constexpr ElBaseType variants = 1; };
-template<> struct ElConceptDef<FUNC> { static constexpr ElBaseType variants = 1; };
+template<> struct ElConceptDef<FUNC> {
+    static constexpr ElBaseType variants{1};
+    static constexpr uint8_t simple_func_types{2};
+    static constexpr uint8_t func_types{variants - 1 + simple_func_types};
+    using FnId = Bounded<func_types>;
+};
+
+namespace Func {
+enum Func {
+    QUOTE,
+    BLLEVAL,
+};
+static_assert(BLLEVAL == ElConceptDef<FUNC>::simple_func_types - 1);
+} // namespace
 
 template<ElType ET>
 class ElConcept;
@@ -125,6 +140,8 @@ class ElConcept<FUNC> : public ElConceptParent<FUNC>
 public:
     // parent's constructor
     using ElConceptParent<FUNC>::ElConceptParent;
+
+    ElConceptDef<FUNC>::FnId get_fnid() const;
 
     void dealloc(ElRef& child1, ElRef& child2);
 };

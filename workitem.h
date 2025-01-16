@@ -1,55 +1,16 @@
+#ifndef WORKITEM_H
+#define WORKITEM_H
+
 #include <elem.h>
 #include <element.h>
 #include <elconcept.h>
+#include <arena.h>
 
 #include <logging.h>
 
 #include <array>
 #include <optional>
 #include <vector>
-
-class Arena
-{
-private:
-    ElRef m_nil;
-
-public:
-    Arena();
-    ~Arena() = default;
-
-    template<ElType ET, int Variant, typename... T>
-    ElRef New(T&&... args)
-    {
-        Elem* el = new Elem;
-        LogTrace(BCLog::BLL, "Created new %s at %p\n", ET::name, el);
-        ElRef res{std::move(el)};
-        res.template init_as<ET, Variant>(std::forward<decltype(args)>(args)...);
-        return res.move();
-    }
-
-    template<ElType ET, typename... T>
-    ElRef New(T&&... args)
-    {
-        static_assert(ElConcept<ET>::variants == 1);
-        return New<ET,0>(std::forward<decltype(args)>(args)...);
-    }
-
-    inline ElRef mkel(ElRef&& e) { return e.move(); }
-
-    ElRef mkel(int64_t v);
-    ElRef nil() { return m_nil.copy(); }
-
-    ElRef error();
-
-    ElRef mkcons(ElRef&& a, ElRef&& b);
-
-    inline ElRef mklist() { return nil(); }
-    inline ElRef mklist(auto&& head, auto&&... args)
-    {
-        ElRef t = mklist(std::forward<decltype(args)>(args)...);
-        return New<CONS>(mkel(std::forward<decltype(head)>(head)), std::move(t));
-    }
-};
 
 struct Continuation
 {
@@ -66,7 +27,7 @@ class WorkItem
 {
 private:
     std::vector<Continuation> continuations;
-    std::optional<ElRef> feedback{std::nullopt};
+    ElRef feedback; // may be nullptr
 
     Arena arena;
     // costings
@@ -78,8 +39,7 @@ private:
 
     ElRef pop_feedback()
     {
-        ElRef res{*std::move(feedback)};
-        feedback.reset();
+        ElRef res{feedback.move()};
         return res.move();
     }
 
@@ -108,12 +68,6 @@ public:
     }
 
     void eval_sexpr(ElRef&& sexpr, ElRef&& env);
-#if 0
-    void eval_sexpr(ElRef&& sexpr, ElRef&& env)
-    {
-        new_continuation(arena.New<FUNC,OP_BLLEVAL>(arena.nil()), std::move(sexpr), std::move(env));
-    }
-#endif
 
     void fin_value(ElRef&& val)
     {
@@ -129,3 +83,4 @@ public:
 
 };
 
+#endif // WORKITEM_H

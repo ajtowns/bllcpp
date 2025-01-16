@@ -1,10 +1,7 @@
 
 ALL: main
 
-element.o: element.h
-workitem.o: workitem.h element.h
-
-main: main.o element.o workitem.o
+main: main.o element.o workitem.o arena.o
 	clang++ -I. -Wdangling -Wall -W -std=c++20 -O2 -o $@ $^
 
 %.o: %.cpp

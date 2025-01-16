@@ -80,7 +80,7 @@ void ElRefViewHelper::decref(ElRef&& el)
     ElRef rest{nullptr};
 
     while (el) {
-LogTrace(BCLog::BLL, "decref %p refcount=%d\n", el.m_el, el.m_el->get_refcount());
+        LogTrace(BCLog::BLL, "decref %p refcount=%d\n", el.m_el, el.m_el->get_refcount());
         if (!el.m_el->decref()) {
             el.m_el = nullptr;
         } else {
@@ -152,7 +152,12 @@ void ElConcept<CONS>::dealloc(ElRef& child1, ElRef& child2)
 
 void ElConcept<FUNC>::dealloc(ElRef& child1, ElRef& child2)
 {
-    (void)child1; (void)child2;
+    (void)child2;
+    ElConceptHelper::mutate(*this,
+         [&](ElVariant<FUNC,0>::ElData& eld) {
+              child1 = eld.extdata.move();
+         }
+    );
     return;
 }
 
@@ -185,6 +190,23 @@ Span<const uint8_t> ElConcept<ATOM>::data() const
     return res;
 }
 
+ElVariant<FUNC,0>::ElData::ElData(Arena& arena, const Bounded<functypes>& type)
+    : type{type}
+{
+    extdata = arena.nil(); // everything gets a nil for now!
+}
+
+ElConceptDef<FUNC>::FnId ElConcept<FUNC>::get_fnid() const
+{
+    uint8_t fnid = 0;
+    ElConceptHelper::visit(*this, util::Overloaded(
+        [&](const ElVariant<FUNC,0>::ElData& eld) {
+            fnid = eld.type;
+        }
+    ));
+    return ElConceptDef<FUNC>::FnId::make_checked(fnid);
+}
+
 std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
 {
     std::string res;
@@ -211,7 +233,9 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
             in_list = false;
         },
         [&](ElConcept<ERROR>) { res = "ERROR"; },
-        [&](ElConcept<FUNC>) { }
+        [&](ElConcept<FUNC> fn) {
+            res = strprintf("FUNC<%d>", (int)fn.get_fnid());
+        }
     ));
     if (in_list) {
         return " . " + res + ")";

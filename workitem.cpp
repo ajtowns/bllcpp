@@ -3,26 +3,7 @@
 #include <element.h>
 #include <elconcept.h>
 #include <elimpl.h>
-
-Arena::Arena()
-{
-    m_nil = New<ATOM,0>(int64_t{0});
-}
-
-ElRef Arena::mkel(int64_t v)
-{
-    return (v == 0 ? nil() : New<ATOM>(v));
-}
-
-ElRef Arena::mkcons(ElRef&& a, ElRef&& b)
-{
-    return New<CONS>(a.move(), b.move());
-}
-
-ElRef Arena::error()
-{
-    return New<ERROR>();
-}
+#include <arena.h>
 
 template<ElType ET>
 struct WorkItem::Logic
@@ -77,4 +58,9 @@ void WorkItem::cont()
             step(elconcept, std::move(cont.args), std::move(cont.env), std::move(fb));
         }
     );
+}
+
+void WorkItem::eval_sexpr(ElRef&& sexpr, ElRef&& env)
+{
+    new_continuation(arena.mkfn(Func::BLLEVAL), sexpr.move(), env.move());
 }

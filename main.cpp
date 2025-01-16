@@ -20,7 +20,7 @@ int main(void)
         yo.reset();
         LogTrace(BCLog::BLL, "Next\n");
 
-        x = arena.New<CONS>(arena.mklist(1,2,arena.mklist(3,3,3),4,5, arena.New<ERROR>()), lucky.move());
+        x = arena.New<CONS>(arena.mklist(1,2,arena.mklist(3,arena.mkfn(Func::BLLEVAL),3),4,5, arena.New<ERROR>()), lucky.move());
     }
     std::cout << x.to_string() << std::endl;
     LogTrace(BCLog::BLL, "Goodbye\n");
