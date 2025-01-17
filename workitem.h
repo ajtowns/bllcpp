@@ -29,7 +29,7 @@ private:
     std::vector<Continuation> continuations;
     ElRef feedback; // may be nullptr
 
-    Arena arena;
+    Arena& arena;
     // costings
 
     // CTransactionRef tx;
@@ -56,10 +56,20 @@ private:
     void step(ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback);
 
 public:
-    explicit WorkItem(ElRef&& sexpr, ElRef&& env)
+    explicit WorkItem(Arena& arena LIFETIMEBOUND, ElRef&& sexpr, ElRef&& env)
+        : arena{arena}
     {
         continuations.reserve(1024);
         eval_sexpr(std::move(sexpr), std::move(env));
+    }
+
+    ElView get_feedback() const LIFETIMEBOUND
+    {
+        return feedback.view();
+    }
+    const std::vector<Continuation>& get_continuations() const LIFETIMEBOUND
+    {
+        return continuations;
     }
 
     void new_continuation(ElRef&& func, ElRef&& args, ElRef&& env)
@@ -80,7 +90,6 @@ public:
     }
 
     void cont();
-
 };
 
 #endif // WORKITEM_H

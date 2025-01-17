@@ -63,6 +63,7 @@ template<> struct ElConceptDef<FUNC> {
     static constexpr uint8_t simple_func_types{2};
     static constexpr uint8_t func_types{variants - 1 + simple_func_types};
     using FnId = Bounded<func_types>;
+    static const std::array<std::string, func_types> func_name;
 };
 
 namespace Func {

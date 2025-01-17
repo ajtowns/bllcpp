@@ -250,7 +250,7 @@ public:
         return visit(match);
     }
 
-    std::string to_string() { return ElRefViewHelper::to_string(view()); };
+    std::string to_string() const { return ElRefViewHelper::to_string(view()); };
 };
 
 static_assert(sizeof(ElRef) == sizeof(Elem*));

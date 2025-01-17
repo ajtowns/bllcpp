@@ -29,8 +29,10 @@ void WorkItem::Logic<ET>::step(WorkItem& wi, ElConcept<ET>& elc, ElRef&& args, E
 template<>
 void WorkItem::Logic<FUNC>::step(WorkItem& wi, ElConcept<FUNC>& func, ElRef&& args, ElRef&& env, ElRef&& feedback)
 {
-    wi.fin_value(func.copy()); // XXX fancy logic here
-    (void)args; (void)env; (void)feedback;
+    (void)func;
+    wi.fin_value(
+        wi.arena.mklist(args.move(), env.move(), feedback ? feedback.move() : wi.arena.nil())
+    );
 }
 
 template<ElType ET>

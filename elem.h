@@ -19,7 +19,7 @@ private:
 
     alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
 
-    uint32_t refcount{1};
+    int32_t refcount{1};
     ElBaseType type{0};
 
     template<typename ElData>
@@ -34,7 +34,7 @@ private:
 
 public:
     void incref() { ++refcount; }
-    [[nodiscard]] bool decref() { return (refcount == 0 || --refcount == 0); }
+    [[nodiscard]] bool decref() { return --refcount <= 0; }
     int get_refcount() const { return refcount; }
 
     void set_type(ElBaseType new_type) { type = new_type; }
@@ -44,5 +44,7 @@ public:
     template<typename ElData> auto& data() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
     template<typename ElData> auto& cdata() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
 };
+
+static_assert(alignof(Elem) >= alignof(void*));
 
 #endif // ELEM_H

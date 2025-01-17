@@ -77,33 +77,33 @@ template ElConcept<FUNC> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept
 
 void ElRefViewHelper::decref(ElRef&& el)
 {
+    if (!el || !el.m_el->decref()) {
+        el.m_el = nullptr;
+        return;
+    }
+
     ElRef rest{nullptr};
 
+    LogTrace(BCLog::BLL, "decref(%p)\n", el.m_el);
     while (el) {
-        LogTrace(BCLog::BLL, "decref %p refcount=%d\n", el.m_el, el.m_el->get_refcount());
+        LogTrace(BCLog::BLL, "decref %p type=%d refcount=%d rest=%p\n", el.m_el, el.m_el->get_type(), el.m_el->get_refcount(), rest.m_el);
         if (!el.m_el->decref()) {
             el.m_el = nullptr;
         } else {
             ElRef a{nullptr}, b{nullptr};
             el.visit([&](auto d) { d.dealloc(a, b); });
 
-            if (a && a.m_el->get_refcount() > 1) {
-                (void)a.m_el->decref();
-                a.m_el = nullptr;
-            }
-            if (b && a.m_el->get_refcount() > 1) {
-                (void)b.m_el->decref();
-                b.m_el = nullptr;
-            }
+            if (!a || !a.m_el->decref()) a.m_el = nullptr;
+            if (!b || !a.m_el->decref()) b.m_el = nullptr;
             if (a && b) {
-                el.m_el->incref(); // need to keep this around for a bit
+                LogTrace(BCLog::BLL, "Preserved container of %d at %p refcount=%d\n", el.m_el->get_type(), el.m_el, el.m_el->get_refcount());
                 ElRefViewHelper::init_as<CONS,0>(el, std::move(b), std::move(rest));
                 rest = el.move();
                 el = a.move();
             } else {
                 if (b) a = b.move();
                 LogTrace(BCLog::BLL, "Deleted %d at %p\n", el.m_el->get_type(), el.m_el);
-                delete el.m_el; // XXX Allocator
+                //delete el.m_el; // XXX Allocator
                 el.m_el = nullptr;
                 el = a.move();
             }
@@ -112,7 +112,7 @@ void ElRefViewHelper::decref(ElRef&& el)
             ElRef next{nullptr};
             rest.visit([&](auto d) { d.dealloc(el, next); });
             LogTrace(BCLog::BLL, "Deleted (2) %d at %p\n", rest.m_el->get_type(), rest.m_el);
-            delete rest.m_el; // XXX Allocator
+            //delete rest.m_el; // XXX Allocator
             rest.m_el = nullptr;
             rest = next.move();
         }
@@ -234,7 +234,7 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
         },
         [&](ElConcept<ERROR>) { res = "ERROR"; },
         [&](ElConcept<FUNC> fn) {
-            res = strprintf("FUNC<%d>", (int)fn.get_fnid());
+            res = strprintf("FUNC<%s>", ElConceptDef<FUNC>::func_name[fn.get_fnid()]);
         }
     ));
     if (in_list) {
@@ -243,3 +243,23 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
         return res;
     }
 }
+
+
+using func_name_array = std::array<std::string, ElConceptDef<FUNC>::func_types>;
+
+#define CASE_FUNC_NAME(F) case F: res[F] = #F; break
+static func_name_array gen_func_names()
+{
+    func_name_array res;
+    for (size_t i = 0; i < res.size(); ++i) {
+        switch(static_cast<Func::Func>(i)) {
+            CASE_FUNC_NAME(Func::QUOTE);
+            CASE_FUNC_NAME(Func::BLLEVAL);
+        }
+    }
+    return res;
+}
+#undef CASE_FUNC_NAME
+
+const func_name_array ElConceptDef<FUNC>::func_name = gen_func_names();
+
