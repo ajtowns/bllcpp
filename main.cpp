@@ -42,7 +42,7 @@ void test2(Arena& arena)
     WorkItem wi(arena, arena.mklist(1, 1, 1), arena.nil());
 
     dump_cont(wi);
-    wi.cont();
+    wi.step();
     dump_cont(wi);
 }
 

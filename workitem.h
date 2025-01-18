@@ -25,11 +25,13 @@ struct Continuation
 
 class WorkItem
 {
+public:
+    Arena& arena;
+
 private:
     std::vector<Continuation> continuations;
     ElRef feedback; // may be nullptr
 
-    Arena& arena;
     // costings
 
     // CTransactionRef tx;
@@ -50,12 +52,9 @@ private:
         return c;
     }
 
-    template<ElType ET> struct Logic;
-
-    template<ElType ET>
-    void step(ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback);
 
 public:
+    template<typename T> struct Logic;
     explicit WorkItem(Arena& arena LIFETIMEBOUND, ElRef&& sexpr, ElRef&& env)
         : arena{arena}
     {
@@ -89,7 +88,7 @@ public:
         fin_value(arena.error());
     }
 
-    void cont();
+    void step();
 };
 
 #endif // WORKITEM_H

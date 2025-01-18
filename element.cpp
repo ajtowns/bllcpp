@@ -119,53 +119,28 @@ void ElRefViewHelper::decref(ElRef&& el)
     }
 }
 
-class ElConceptHelper
-{
-public:
-    template<typename EC, EC::V V=0, typename Fn>
-    static void mutate(EC& ec, Fn&& fn)
-    {
-        if (ec.variant == V) return fn(ec.elview.m_el->template data<typename ElVariant<typename EC::ET,V>::ElData>());
-        if constexpr (V < V.LAST) {
-            return mutate<EC,V+1>(ec, fn);
-        }
-    }
-
-    template<typename EC, EC::V V=0, typename Fn>
-    static void visit(const EC& ec, Fn&& fn)
-    {
-        if (ec.variant == V) return fn(ec.elview.m_el->template data<typename ElVariant<typename EC::ET,V>::ElData>());
-        if constexpr (V < V.LAST) {
-            return visit<EC,V+1>(ec, fn);
-        }
-    }
-
-};
-
 void ElConcept<CONS>::dealloc(ElRef& child1, ElRef& child2)
 {
-    ElConceptHelper::mutate(*this, [&](ElVariant<CONS,0>::ElData& eld) {
-        child1 = eld.left.move();
-        child2 = eld.right.move();
+    ElConceptHelper::mutate(*this, [&](ElVariant<CONS,0>& elv) {
+        child1 = elv.eldata.left.move();
+        child2 = elv.eldata.right.move();
     });
 }
 
 void ElConcept<FUNC>::dealloc(ElRef& child1, ElRef& child2)
 {
     (void)child2;
-    ElConceptHelper::mutate(*this,
-         [&](ElVariant<FUNC,0>::ElData& eld) {
-              child1 = eld.extdata.move();
-         }
-    );
+    ElConceptHelper::mutate(*this, [&](ElVariant<FUNC,0>& elv) {
+        child1 = elv.eldata.extdata.move();
+    });
     return;
 }
 
 ElView ElConcept<CONS>::left()
 {
     ElView res;
-    ElConceptHelper::visit(*this, [&](const ElVariant<CONS,0>::ElData& eld) {
-        res = eld.left.view();
+    ElConceptHelper::visit(*this, [&](const ElVariant<CONS,0>& elv) {
+        res = elv.eldata.left.view();
     });
     return res;
 }
@@ -173,8 +148,8 @@ ElView ElConcept<CONS>::left()
 ElView ElConcept<CONS>::right()
 {
     ElView res;
-    ElConceptHelper::visit(*this, [&](const ElVariant<CONS,0>::ElData& eld) {
-        res = eld.right.view();
+    ElConceptHelper::visit(*this, [&](const ElVariant<CONS,0>& elv) {
+        res = elv.eldata.right.view();
     });
     return res;
 }
@@ -183,14 +158,14 @@ Span<const uint8_t> ElConcept<ATOM>::data() const
 {
     static const uint8_t nildata[0]{};
     Span<const uint8_t> res;
-    ElConceptHelper::visit(*this, [&](const ElVariant<ATOM,0>::ElData& eld) {
-        if (eld.n == 0) res = Span<const uint8_t>(nildata, 0);
-        else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&eld.n), sizeof(eld.n));
+    ElConceptHelper::visit(*this, [&](const ElVariant<ATOM,0>& elv) {
+        if (elv.eldata.n == 0) res = Span<const uint8_t>(nildata, 0);
+        else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&elv.eldata.n), sizeof(elv.eldata.n));
     });
     return res;
 }
 
-ElVariant<FUNC,0>::ElData::ElData(Arena& arena, const Bounded<functypes>& type)
+ElData<FUNC,0>::ElData(Arena& arena, const Bounded<functypes>& type)
     : type{type}
 {
     extdata = arena.nil(); // everything gets a nil for now!
@@ -200,8 +175,8 @@ ElConceptDef<FUNC>::FnId ElConcept<FUNC>::get_fnid() const
 {
     uint8_t fnid = 0;
     ElConceptHelper::visit(*this, util::Overloaded(
-        [&](const ElVariant<FUNC,0>::ElData& eld) {
-            fnid = eld.type;
+        [&](const ElVariant<FUNC,0>& elv) {
+            fnid = elv.eldata.type;
         }
     ));
     return ElConceptDef<FUNC>::FnId::make_checked(fnid);

@@ -68,10 +68,17 @@ template<> struct ElConceptDef<FUNC> {
 
 namespace Func {
 enum Func {
-    QUOTE,
     BLLEVAL,
+    QUOTE,
+    // APPLY,
+    // SOFTFORK,
+    // PARTIAL,
+    // OP_HEAD,
+    // OP_TAIL,
+    // OP_RCONS,
 };
-static_assert(BLLEVAL == ElConceptDef<FUNC>::simple_func_types - 1);
+static_assert(ElConceptDef<FUNC>::simple_func_types == QUOTE + 1);
+static_assert(ElConceptDef<FUNC>::func_types == QUOTE + 1);
 } // namespace
 
 template<ElType ET>
@@ -88,6 +95,7 @@ public:
     template<bool O>
     ElConceptParent(const V& variant, const ElRefView<O>& er LIFETIMEBOUND) : variant{variant}, elview{er.view()} { }
 
+    ElView view() const { return elview.view(); }
     ElRef copy() { return elview.copy(); }
 
 protected:
@@ -96,9 +104,6 @@ protected:
 
     friend class ElConceptHelper;
 };
-
-template<ElType ET, Bounded<ElConceptDef<ET>::variants> V>
-struct ElVariant;
 
 template<>
 class ElConcept<ATOM> : public ElConceptParent<ATOM>

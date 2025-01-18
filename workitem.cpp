@@ -5,43 +5,67 @@
 #include <elimpl.h>
 #include <arena.h>
 
-template<ElType ET>
+#include <type_traits>
+
+struct StepParams
+{
+    WorkItem& wi;
+    ElRef args;
+    ElRef env;
+    ElRef feedback;
+
+    StepParams(WorkItem& wi, ElRef&& args, ElRef&& env, ElRef&& feedback)
+    : wi{wi}, args{std::move(args)}, env{std::move(env)}, feedback{std::move(feedback)}
+    {
+    }
+
+    StepParams() = delete;
+    StepParams(const StepParams&) = delete;
+    StepParams(StepParams&&) = default;
+    ~StepParams() = default;
+};
+
+template<typename T>
 struct WorkItem::Logic
 {
     Logic() = delete;
-    static void step(WorkItem& wi, ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback);
+    static void step(StepParams&& sp, const T& fn);
 };
 
-// default step is more or less a no-op
-template<ElType ET>
-void WorkItem::Logic<ET>::step(WorkItem& wi, ElConcept<ET>& elc, ElRef&& args, ElRef&& env, ElRef&& feedback)
-{
-    // discard
-    args.reset();
-    env.reset();
-    feedback.reset();
-
-    // save value
-    wi.fin_value(elc.copy());
-}
-
-// default step is more or less a no-op
+// func step is a delegation
 template<>
-void WorkItem::Logic<FUNC>::step(WorkItem& wi, ElConcept<FUNC>& func, ElRef&& args, ElRef&& env, ElRef&& feedback)
+void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func)
 {
-    (void)func;
-    wi.fin_value(
-        wi.arena.mklist(args.move(), env.move(), feedback ? feedback.move() : wi.arena.nil())
-    );
+    ElConceptHelper::visit(func, [&](const auto &elv) {
+        WorkItem::Logic<std::remove_cvref_t<decltype(elv)>>::step(std::move(sp), elv);
+    });
 }
 
 template<ElType ET>
-void WorkItem::step(ElConcept<ET>& fn, ElRef&& args, ElRef&& env, ElRef&& feedback)
+using WAT = WorkItem::Logic<ElConcept<ET>>;
+
+// default step is basically a no-op
+static void step_noop(StepParams&& sp, ElView elv)
 {
-    WorkItem::Logic<ET>::step(*this, fn, std::move(args), std::move(env), std::move(feedback));
+    // save value
+    sp.wi.fin_value(elv.copy());
 }
 
-void WorkItem::cont()
+template<> void WorkItem::Logic<class ElConcept<ATOM>>::step(StepParams&& sp, const ElConcept<ATOM>& elc) { step_noop(std::move(sp), elc.view()); }
+template<> void WorkItem::Logic<class ElConcept<CONS>>::step(StepParams&& sp, const ElConcept<CONS>& elc) { step_noop(std::move(sp), elc.view()); }
+template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, const ElConcept<ERROR>& elc) { step_noop(std::move(sp), elc.view()); }
+
+/* handle simple functions */
+template<>
+void WorkItem::Logic<ElVariant<FUNC,0>>::step(StepParams&& sp, const ElVariant<FUNC,0>& elv)
+{
+    (void)elv;
+    // just do something weird, whatever
+    sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
+}
+
+
+void WorkItem::step()
 {
     if (continuations.empty()) return; // nothing to do
 
@@ -55,11 +79,9 @@ void WorkItem::cont()
          return;
     }
 
-    cont.func | util::Overloaded(
-        [&](auto elconcept) {
-            step(elconcept, std::move(cont.args), std::move(cont.env), std::move(fb));
-        }
-    );
+    StepParams sp(*this, std::move(cont.args), std::move(cont.env), std::move(feedback));
+
+    cont.func.visit([&](auto elconcept) { WorkItem::Logic<ElConcept<typename decltype(elconcept)::ET>>::step(std::move(sp), elconcept); });
 }
 
 void WorkItem::eval_sexpr(ElRef&& sexpr, ElRef&& env)

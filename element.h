@@ -46,7 +46,7 @@ template<ElType>
 class ElConcept;
 
 template<ElType ET,Bounded<ElConceptDef<ET>::variants> V>
-struct ElVariant;
+struct ElData;
 
 class ElRefViewHelper
 {
@@ -68,9 +68,7 @@ protected:
     static ElConcept<ET> init_as(ElRefView<O>& er, T&&... args)
     {
         ElConcept<ET> res = set_type<ET>(er, V);
-
-        using ECV = ElVariant<ET,V>;
-        er.template inplace_new<typename ECV::ElData>(std::forward<decltype(args)>(args)...);
+        er.template inplace_new<ElData<ET,V>>(std::forward<decltype(args)>(args)...);
         return res;
     }
 
@@ -171,10 +169,10 @@ public:
         return *this;
     }
 
-    template<typename ElData, typename... T>
-    ElData* inplace_new(T&&... args)
+    template<typename ED, typename... T>
+    ED* inplace_new(T&&... args)
     {
-        return new (m_el) ElData{std::forward<decltype(args)>(args)...};
+        return new (m_el) ED{std::forward<decltype(args)>(args)...};
     }
 
     ElRef copy()
