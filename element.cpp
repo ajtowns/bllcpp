@@ -149,6 +149,8 @@ ElData<FUNC,0>::ElData(Arena& arena, const Bounded<functypes>& type)
 std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
 {
     std::string res;
+    if (!ev) res = "nullptr";
+
     ev.visit(util::Overloaded(
         [&](ElConcept<ATOM> d) {
             if (d.data().size() == 0) {
