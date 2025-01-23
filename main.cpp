@@ -11,7 +11,7 @@
 void test1(Arena& arena)
 {
     LogTrace(BCLog::BLL, "Hello\n");
-    ElRef x;
+    ElRef x{nullptr};
     {
         ElRef lucky = arena.New<ATOM>(1300);
         auto yo = lucky.copy();

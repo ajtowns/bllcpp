@@ -56,7 +56,7 @@ private:
 public:
     template<typename T> struct Logic;
     explicit WorkItem(Arena& arena LIFETIMEBOUND, ElRef&& sexpr, ElRef&& env)
-        : arena{arena}
+        : arena{arena}, feedback{nullptr}
     {
         continuations.reserve(1024);
         eval_sexpr(std::move(sexpr), std::move(env));

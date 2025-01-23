@@ -32,29 +32,14 @@ struct WorkItem::Logic
     static void step(StepParams&& sp, const T& fn);
 };
 
-// func step is a delegation
-template<>
-void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func)
-{
-    ElConceptHelper::visit(func, [&](const auto &elv) {
-        WorkItem::Logic<std::remove_cvref_t<decltype(elv)>>::step(std::move(sp), elv);
-    });
-}
 
-template<ElType ET>
-using WAT = WorkItem::Logic<ElConcept<ET>>;
+template<> void WorkItem::Logic<class ElConcept<ATOM>>::step(StepParams&& sp, const ElConcept<ATOM>& elc) { sp.wi.fin_value(ElRef::copy_of(&elc.get_el())); }
+template<> void WorkItem::Logic<class ElConcept<CONS>>::step(StepParams&& sp, const ElConcept<CONS>& elc) { sp.wi.fin_value(ElRef::copy_of(&elc.get_el())); }
+template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, const ElConcept<ERROR>& elc) { sp.wi.fin_value(ElRef::copy_of(&elc.get_el())); }
 
-// default step is basically a no-op
-static void step_noop(StepParams&& sp, ElView elv)
-{
-    // save value
-    sp.wi.fin_value(elv.copy());
-}
+template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
 
-template<> void WorkItem::Logic<class ElConcept<ATOM>>::step(StepParams&& sp, const ElConcept<ATOM>& elc) { step_noop(std::move(sp), elc.view()); }
-template<> void WorkItem::Logic<class ElConcept<CONS>>::step(StepParams&& sp, const ElConcept<CONS>& elc) { step_noop(std::move(sp), elc.view()); }
-template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, const ElConcept<ERROR>& elc) { step_noop(std::move(sp), elc.view()); }
-
+#if 0
 /* handle simple functions */
 template<>
 void WorkItem::Logic<ElVariant<FUNC,0>>::step(StepParams&& sp, const ElVariant<FUNC,0>& elv)
@@ -63,7 +48,7 @@ void WorkItem::Logic<ElVariant<FUNC,0>>::step(StepParams&& sp, const ElVariant<F
     // just do something weird, whatever
     sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
 }
-
+#endif
 
 void WorkItem::step()
 {
@@ -72,7 +57,7 @@ void WorkItem::step()
     Continuation cont{pop_continuation()};
     ElRef fb{pop_feedback()};
 
-    if (fb.is<ERROR>()) {
+    if (fb.view().is<ERROR>()) {
          // shortcut
          while (!continuations.empty()) pop_continuation();
          fin_value(std::move(fb));
@@ -81,7 +66,7 @@ void WorkItem::step()
 
     StepParams sp(*this, std::move(cont.args), std::move(cont.env), std::move(feedback));
 
-    cont.func.visit([&](auto elconcept) { WorkItem::Logic<ElConcept<typename decltype(elconcept)::ET>>::step(std::move(sp), elconcept); });
+    cont.func.view().visit([&](auto elconcept) { WorkItem::Logic<ElConcept<typename decltype(elconcept)::ET>>::step(std::move(sp), elconcept); });
 }
 
 void WorkItem::eval_sexpr(ElRef&& sexpr, ElRef&& env)

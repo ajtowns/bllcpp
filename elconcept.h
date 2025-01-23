@@ -2,55 +2,37 @@
 #define ELCONCEPT_H
 
 #include <elem.h>
-#include <element.h>
+#include <bounded.h>
+
 #include <span.h>
 #include <attributes.h>
+#include <overloaded.h>
 
 #include <stddef.h>
 #include <stdint.h>
 #include <limits>
 #include <memory>
 
-class WorkItem;
+class Arena;
+class ElView;
+struct StepParams;
 
-template<ElBaseType _MAX>
-class Bounded
+struct ElTypeTag { };
+struct ATOM : ElTypeTag { static constexpr std::string name = "ATOM"; };
+struct CONS : ElTypeTag { static constexpr std::string name = "CONS"; };
+struct ERROR : ElTypeTag { static constexpr std::string name = "ERROR"; };
+struct FUNC : ElTypeTag { static constexpr std::string name = "FUNC"; };
+
+using ElTypeOrder = std::tuple<ATOM,CONS,ERROR,FUNC>;
+
+template<typename T>
+concept ElType = std::is_base_of_v<ElTypeTag,T>;
+
+template<typename Fn>
+static constexpr void PerConcept(Fn&& fn)
 {
-private:
-    using T = ElBaseType;
-
-    struct internal_only_tag {};
-    static constexpr  internal_only_tag internal_only;
-
-    explicit Bounded(const T& v, internal_only_tag) : v{v} { }
-
-public:
-    const T v;
-
-    static consteval bool in_range(const T& val) { return 0 <= val && val < MAX; }
-
-    static constexpr T MAX{_MAX};
-    static_assert(MAX > 0);
-    static constexpr T LAST{_MAX-1};
-
-    static Bounded make_checked(const T& checked) { return Bounded{checked, internal_only}; }
-
-    constexpr Bounded() : v{0} { };
-    constexpr Bounded(const Bounded& v) : v{v.v} { }
-    constexpr Bounded(Bounded&& v) : v{v.v} { }
-
-    explicit (false) consteval Bounded(const T& v) : v{v}
-    {
-        if (v >= MAX) throw std::out_of_range("out of range");
-    }
-
-
-    explicit (false) constexpr operator T() const
-    {
-        return v;
-    }
-};
-
+    std::apply([&](auto&&... args) { (fn(args), ...); }, ElTypeOrder{});
+}
 
 template<ElType>
 struct ElConceptDef;
@@ -58,15 +40,10 @@ struct ElConceptDef;
 template<> struct ElConceptDef<ATOM> { static constexpr ElBaseType variants = 1; };
 template<> struct ElConceptDef<CONS> { static constexpr ElBaseType variants = 1; };
 template<> struct ElConceptDef<ERROR> { static constexpr ElBaseType variants = 1; };
-template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{1};
-    static constexpr uint8_t simple_func_types{2};
-    static constexpr uint8_t func_types{variants - 1 + simple_func_types};
-    using FnId = Bounded<func_types>;
-    static const std::array<std::string, func_types> func_name;
-};
 
 namespace Func {
+// use namespace so that we write Func::BLLEVAL like an enum class,
+// but don't use an enum class so that they convert directly into an int
 enum Func {
     BLLEVAL,
     QUOTE,
@@ -77,79 +54,113 @@ enum Func {
     // OP_TAIL,
     // OP_RCONS,
 };
-static_assert(ElConceptDef<FUNC>::simple_func_types == QUOTE + 1);
-static_assert(ElConceptDef<FUNC>::func_types == QUOTE + 1);
 } // namespace
+
+template<> struct ElConceptDef<FUNC> {
+    static constexpr ElBaseType variants{2};
+    static constexpr uint8_t simple_func_types{2};
+    static const std::array<std::string, variants> func_name;
+
+    static_assert(simple_func_types == Func::QUOTE + 1);
+    static_assert(variants == Func::QUOTE + 1);
+};
+
+template<ElType Target>
+static consteval ElBaseType ConceptOffset()
+{
+    int offset = 0;
+    bool done = false;
+    PerConcept(util::Overloaded(
+        [&](Target) { done = true; },
+        [&](auto et) {
+            if (!done) offset += ElConceptDef<decltype(et)>::variants;
+        }
+    ));
+    if (!done) throw std::out_of_range("not a valid ElType");
+    return offset;
+}
 
 template<ElType ET>
 class ElConcept;
 
 template<ElType _ET>
-class ElConceptParent
+class ElConceptBase
 {
 public:
     using ET = _ET;
     static constexpr ElBaseType variants{ElConceptDef<ET>::variants};
     using V = Bounded<variants>;
 
-    template<bool O>
-    ElConceptParent(const V& variant, const ElRefView<O>& er LIFETIMEBOUND) : variant{variant}, elview{er.view()} { }
+    ElConceptBase(const Elem& el LIFETIMEBOUND) : el{el} { }
+    V variant() const {
+        return V::make_checked(el.get_type() - ConceptOffset<ET>());
+    }
 
-    ElView view() const { return elview.view(); }
-    ElRef copy() { return elview.copy(); }
+    const Elem& get_el() const LIFETIMEBOUND { return el; }
 
-protected:
-    const V variant;
-    ElView elview;
-
-    friend class ElConceptHelper;
+private:
+    const Elem& el;
 };
 
 template<>
-class ElConcept<ATOM> : public ElConceptParent<ATOM>
+class ElConcept<ATOM> : public ElConceptBase<ATOM>
 {
 public:
     // parent's constructor
-    using ElConceptParent<ATOM>::ElConceptParent;
+    using ElConceptBase<ATOM>::ElConceptBase;
 
-    void dealloc(ElRef&, ElRef&) { return; }
+    static ElConcept<ATOM> init_as(Elem& el, int64_t n);
+
+    void dealloc(Elem*&, Elem*&) { return; }
 
     Span<const uint8_t> data() const LIFETIMEBOUND;
 };
 
 template<>
-class ElConcept<CONS> : public ElConceptParent<CONS>
+class ElConcept<CONS> : public ElConceptBase<CONS>
 {
 public:
     // parent's constructor
-    using ElConceptParent<CONS>::ElConceptParent;
+    using ElConceptBase<CONS>::ElConceptBase;
 
-    ElView left();
-    ElView right();
+    static ElConcept<CONS> init_as(Elem& el, ElView left, ElView right);
 
-    void dealloc(ElRef& child1, ElRef& child2);
+    ElView left() const LIFETIMEBOUND;
+    ElView right() const LIFETIMEBOUND;
+
+    void dealloc(Elem*& child1, Elem*& child2);
 };
 
 template<>
-class ElConcept<ERROR> : public ElConceptParent<ERROR>
+class ElConcept<ERROR> : public ElConceptBase<ERROR>
 {
 public:
     // parent's constructor
-    using ElConceptParent<ERROR>::ElConceptParent;
+    using ElConceptBase<ERROR>::ElConceptBase;
 
-    void dealloc(ElRef&, ElRef&) { };
+    static ElConcept<ERROR> init_as(Elem& el);
+
+    void dealloc(Elem*&, Elem*&) { };
 };
 
 template<>
-class ElConcept<FUNC> : public ElConceptParent<FUNC>
+class ElConcept<FUNC> : public ElConceptBase<FUNC>
 {
 public:
     // parent's constructor
-    using ElConceptParent<FUNC>::ElConceptParent;
+    using ElConceptBase<FUNC>::ElConceptBase;
 
-    ElConceptDef<FUNC>::FnId get_fnid() const;
+    static ElConcept<FUNC> init_as(Elem& el, Arena& arena, Func::Func fnid);
 
-    void dealloc(ElRef& child1, ElRef& child2);
+    void step(StepParams& sp) const;
+
+    void dealloc(Elem*& child1, Elem*& child2);
 };
+
+template<ElType ET,ElConcept<ET>::V>
+struct ElVariant;
+
+template<ElType ET,ElConcept<ET>::V V>
+using ElData = ElVariant<ET, V>::ElData;
 
 #endif // ELCONCEPT_H

@@ -14,7 +14,7 @@ using ElBaseType = uint8_t;
 
 class Elem
 {
-private:
+protected:
     struct GenElData { void* a; void* b; };
 
     alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
@@ -40,9 +40,8 @@ public:
     void set_type(ElBaseType new_type) { type = new_type; }
     ElBaseType get_type() const { return type; }
 
-    template<typename ElData> auto& data() LIFETIMEBOUND { return *Elem::dataptr<ElData>(*this); }
-    template<typename ElData> auto& data() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
-    template<typename ElData> auto& cdata() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
+    template<typename ElData> auto& data_rw() LIFETIMEBOUND { return *Elem::dataptr<ElData>(*this); }
+    template<typename ElData> auto& data_ro() const LIFETIMEBOUND { return *Elem::dataptr<const ElData>(*this); }
 };
 
 static_assert(alignof(Elem) >= alignof(void*));

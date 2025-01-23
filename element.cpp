@@ -6,7 +6,9 @@
 
 #include <element.h>
 #include <elconcept.h>
+#include <arena.h>
 #include <elimpl.h>
+#include <funcimpl.h>
 
 #include <logging.h>
 
@@ -47,109 +49,78 @@ static std::string HexStr(const Span<const uint8_t> s)
     return rv;
 }
 
-
-template<ElType ET>
-ElConcept<ET> ElRefViewHelper::convert(const ElView& ev)
+void ElRef::decref(Elem* el)
 {
-    constexpr int offset = concept_offset<ET>();
-    using EC = ElConcept<ET>;
-    const typename EC::V variant = EC::V::make_checked(ev.m_el->get_type() - offset);
-    return EC(variant, ev);
-}
-
-template ElConcept<ATOM> ElRefViewHelper::convert(const ElView& ev);
-template ElConcept<CONS> ElRefViewHelper::convert(const ElView& ev);
-template ElConcept<ERROR> ElRefViewHelper::convert(const ElView& ev);
-template ElConcept<FUNC> ElRefViewHelper::convert(const ElView& ev);
-
-template<ElType ET>
-ElConcept<ET> ElRefViewHelper::set_type(ElRef& er, typename ElConcept<ET>::V variant)
-{
-    constexpr int offset = concept_offset<ET>();
-    er.m_el->set_type(offset + variant);
-    return ElConcept<ET>(variant, er);
-}
-
-template ElConcept<ATOM> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<ATOM>::V variant);
-template ElConcept<CONS> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<CONS>::V variant);
-template ElConcept<ERROR> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<ERROR>::V variant);
-template ElConcept<FUNC> ElRefViewHelper::set_type(ElRef& ev, typename ElConcept<FUNC>::V variant);
-
-void ElRefViewHelper::decref(ElRef&& el)
-{
-    if (!el || !el.m_el->decref()) {
-        el.m_el = nullptr;
-        return;
-    }
-
-    ElRef rest{nullptr};
-
-    LogTrace(BCLog::BLL, "decref(%p)\n", el.m_el);
+    Elem* rest{nullptr};
+    LogTrace(BCLog::BLL, "decref(%p)\n", el);
     while (el) {
-        LogTrace(BCLog::BLL, "decref %p type=%d refcount=%d rest=%p\n", el.m_el, el.m_el->get_type(), el.m_el->get_refcount(), rest.m_el);
-        if (!el.m_el->decref()) {
-            el.m_el = nullptr;
+        LogTrace(BCLog::BLL, "decref %p type=%d refcount=%d rest=%p\n", el, el->get_type(), el->get_refcount(), rest);
+        if (!el->decref()) {
+            el = nullptr;
         } else {
-            ElRef a{nullptr}, b{nullptr};
-            el.visit([&](auto d) { d.dealloc(a, b); });
+            Elem* a{nullptr};
+            Elem* b{nullptr};
+            ElView{el}.visit([&](auto d) { d.dealloc(a, b); });
 
-            if (!a || !a.m_el->decref()) a.m_el = nullptr;
-            if (!b || !a.m_el->decref()) b.m_el = nullptr;
+            if (!a || !a->decref()) a = nullptr;
+            if (!b || !a->decref()) b = nullptr;
             if (a && b) {
-                LogTrace(BCLog::BLL, "Preserved container of %d at %p refcount=%d\n", el.m_el->get_type(), el.m_el, el.m_el->get_refcount());
-                ElRefViewHelper::init_as<CONS,0>(el, std::move(b), std::move(rest));
-                rest = el.move();
-                el = a.move();
+                LogTrace(BCLog::BLL, "Preserved container of %d at %p refcount=%d\n", el->get_type(), el, el->get_refcount());
+                ElConcept<CONS>::init_as(*el, ElView(b), ElView(rest));
+                rest = el;
+                el = a;
             } else {
-                if (b) a = b.move();
-                LogTrace(BCLog::BLL, "Deleted %d at %p\n", el.m_el->get_type(), el.m_el);
-                //delete el.m_el; // XXX Allocator
-                el.m_el = nullptr;
-                el = a.move();
+                if (b) std::swap(a, b);
+                LogTrace(BCLog::BLL, "Deleted %d at %p\n", el->get_type(), el);
+                //delete el; // XXX Allocator
+                el = nullptr;
+                el = a;
             }
         }
         while (!el && rest) {
-            ElRef next{nullptr};
-            rest.visit([&](auto d) { d.dealloc(el, next); });
-            LogTrace(BCLog::BLL, "Deleted (2) %d at %p\n", rest.m_el->get_type(), rest.m_el);
-            //delete rest.m_el; // XXX Allocator
-            rest.m_el = nullptr;
-            rest = next.move();
+            Elem* next{nullptr};
+            ElView(rest).visit([&](auto d) { d.dealloc(el, next); });
+            LogTrace(BCLog::BLL, "Deleted (2) %d at %p\n", rest->get_type(), rest);
+            //delete rest; // XXX Allocator
+            rest = next;
         }
     }
 }
 
-void ElConcept<CONS>::dealloc(ElRef& child1, ElRef& child2)
+void ElConcept<CONS>::dealloc(Elem*& child1, Elem*& child2)
 {
-    ElConceptHelper::mutate(*this, [&](ElVariant<CONS,0>& elv) {
-        child1 = elv.eldata.left.move();
-        child2 = elv.eldata.right.move();
+    ElVariantHelper<CONS>::mutate(*this, [&](ElData<CONS,0>& eldata) {
+        child1 = eldata.left.steal();
+        child2 = eldata.right.steal();
     });
 }
 
-void ElConcept<FUNC>::dealloc(ElRef& child1, ElRef& child2)
+void ElConcept<FUNC>::dealloc(Elem*& child1, Elem*& child2)
 {
     (void)child2;
-    ElConceptHelper::mutate(*this, [&](ElVariant<FUNC,0>& elv) {
-        child1 = elv.eldata.extdata.move();
-    });
+    ElVariantHelper<FUNC>::mutate(*this, util::Overloaded(
+        [&](FuncExt& funcextdata) {
+            child1 = funcextdata.extdata.steal();
+        },
+        [&](FuncNone&) { }
+    ));
     return;
 }
 
-ElView ElConcept<CONS>::left()
+ElView ElConcept<CONS>::left() const LIFETIMEBOUND
 {
     ElView res;
-    ElConceptHelper::visit(*this, [&](const ElVariant<CONS,0>& elv) {
-        res = elv.eldata.left.view();
+    ElVariantHelper<CONS>::visit(*this, [&](const ElData<CONS,0>& eldata) {
+        res = eldata.left.view();
     });
     return res;
 }
 
-ElView ElConcept<CONS>::right()
+ElView ElConcept<CONS>::right() const LIFETIMEBOUND
 {
     ElView res;
-    ElConceptHelper::visit(*this, [&](const ElVariant<CONS,0>& elv) {
-        res = elv.eldata.right.view();
+    ElVariantHelper<CONS>::visit(*this, [&](const ElData<CONS,0>& eldata) {
+        res = eldata.right.view();
     });
     return res;
 }
@@ -158,12 +129,14 @@ Span<const uint8_t> ElConcept<ATOM>::data() const
 {
     static const uint8_t nildata[0]{};
     Span<const uint8_t> res;
-    ElConceptHelper::visit(*this, [&](const ElVariant<ATOM,0>& elv) {
-        if (elv.eldata.n == 0) res = Span<const uint8_t>(nildata, 0);
-        else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&elv.eldata.n), sizeof(elv.eldata.n));
+    ElVariantHelper<ATOM>::visit(*this, [&](const ElData<ATOM,0>& eldata) {
+        if (eldata.n == 0) res = Span<const uint8_t>(nildata, 0);
+        else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&eldata.n), sizeof(eldata.n));
     });
     return res;
 }
+
+#if 0
 
 ElData<FUNC,0>::ElData(Arena& arena, const Bounded<functypes>& type)
     : type{type}
@@ -171,16 +144,7 @@ ElData<FUNC,0>::ElData(Arena& arena, const Bounded<functypes>& type)
     extdata = arena.nil(); // everything gets a nil for now!
 }
 
-ElConceptDef<FUNC>::FnId ElConcept<FUNC>::get_fnid() const
-{
-    uint8_t fnid = 0;
-    ElConceptHelper::visit(*this, util::Overloaded(
-        [&](const ElVariant<FUNC,0>& elv) {
-            fnid = elv.eldata.type;
-        }
-    ));
-    return ElConceptDef<FUNC>::FnId::make_checked(fnid);
-}
+#endif
 
 std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
 {
@@ -209,7 +173,7 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
         },
         [&](ElConcept<ERROR>) { res = "ERROR"; },
         [&](ElConcept<FUNC> fn) {
-            res = strprintf("FUNC<%s>", ElConceptDef<FUNC>::func_name[fn.get_fnid()]);
+            res = strprintf("FUNC<%s>", ElConceptDef<FUNC>::func_name[fn.variant()]);
         }
     ));
     if (in_list) {
@@ -220,7 +184,7 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
 }
 
 
-using func_name_array = std::array<std::string, ElConceptDef<FUNC>::func_types>;
+using func_name_array = std::array<std::string, ElConceptDef<FUNC>::variants>;
 
 #define CASE_FUNC_NAME(F) case F: res[F] = #F; break
 static func_name_array gen_func_names()
@@ -238,3 +202,32 @@ static func_name_array gen_func_names()
 
 const func_name_array ElConceptDef<FUNC>::func_name = gen_func_names();
 
+template<ElType ET, ElConcept<ET>::V Variant, typename... Args>
+static ElConcept<ET> init_as_helper(Elem& el, Args&&... args)
+{
+    el.set_type(ConceptOffset<ET>() + Variant);
+    new(&el.data_rw<uint8_t>()) ElData<ET,Variant>{std::forward<decltype(args)>(args)...};
+    return ElConcept<ET>(el);
+}
+
+ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, int64_t n) { return init_as_helper<ATOM,0>(el, n); }
+ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElView left, ElView right) { return init_as_helper<CONS,0>(el, left, right); }
+ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el) { return init_as_helper<ERROR,0>(el); }
+
+template<ElConcept<FUNC>::V Variant=0>
+static void init_func_as_helper(Elem& el, Arena& arena, Func::Func fnid)
+{
+    if constexpr (Variant < Variant.LAST) {
+        if (fnid != Variant) {
+            return init_func_as_helper<Variant+1>(el, arena, fnid);
+        }
+    }
+    el.set_type(ConceptOffset<FUNC>() + Variant);
+    new(&el.data_rw<uint8_t>()) ElData<FUNC,Variant>{arena};
+}
+
+ElConcept<FUNC> ElConcept<FUNC>::init_as(Elem& el, Arena& arena, Func::Func fnid)
+{
+    init_func_as_helper(el, arena, fnid);
+    return ElConcept<ET>(el);
+}
