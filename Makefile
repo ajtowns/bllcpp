@@ -1,7 +1,4 @@
 
-test: test.o
-	clang++ -I. -Wdangling -Wall -W -std=c++20 -O2 -o $@ $^
-
 ALL: main
 
 main: main.o element.o workitem.o arena.o
