@@ -15,6 +15,12 @@
 #include <limits>
 #include <memory>
 
+template<ElConcept<FUNC>::V Variant>
+struct FuncStep
+{
+     static void step(const ElData<FUNC,Variant>&, StepParams&);
+};
+
 // For functions with no internal state, just args and environment
 struct FuncNone
 {

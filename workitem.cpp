@@ -1,9 +1,10 @@
 
 #include <workitem.h>
-#include <element.h>
 #include <elconcept.h>
-#include <elimpl.h>
+#include <element.h>
 #include <arena.h>
+#include <elimpl.h>
+#include <funcimpl.h>
 
 #include <type_traits>
 
@@ -39,12 +40,36 @@ template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, c
 
 template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
 
+template<ElConcept<FUNC>::V Variant=0>
+static void func_step_helper(const ElConcept<FUNC>& ec, StepParams& sp)
+{
+    static_assert(Variant < 2);
+    if constexpr (Variant < Variant.LAST) {
+        if (ec.variant() != Variant) {
+            return func_step_helper<Variant+1>(ec, sp);
+        }
+    }
+    auto& eld = ec.get_el().data_ro<ElData<FUNC,Variant>>();
+    return FuncStep<Variant>::step(eld, sp);
+}
 void ElConcept<FUNC>::step(StepParams& sp) const
+{
+    func_step_helper(*this, sp);
+}
+
+template<>
+void FuncStep<Func::QUOTE>::step(const ElData<FUNC,Func::BLLEVAL>&, StepParams& sp)
 {
     // just do something weird, whatever
     sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
 }
 
+template<>
+void FuncStep<Func::BLLEVAL>::step(const ElData<FUNC,Func::BLLEVAL>&, StepParams& sp)
+{
+    // just do something weird, whatever
+    sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
+}
 
 void WorkItem::step()
 {
