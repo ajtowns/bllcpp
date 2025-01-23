@@ -39,16 +39,12 @@ template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, c
 
 template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
 
-#if 0
-/* handle simple functions */
-template<>
-void WorkItem::Logic<ElVariant<FUNC,0>>::step(StepParams&& sp, const ElVariant<FUNC,0>& elv)
+void ElConcept<FUNC>::step(StepParams& sp) const
 {
-    (void)elv;
     // just do something weird, whatever
     sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
 }
-#endif
+
 
 void WorkItem::step()
 {
