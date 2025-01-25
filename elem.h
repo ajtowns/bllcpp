@@ -19,7 +19,7 @@ protected:
 
     alignas(GenElData) uint8_t eldata[sizeof(GenElData)];
 
-    int32_t refcount{1};
+    int32_t refcount{0};
     ElBaseType type{0};
 
     template<typename ElData>

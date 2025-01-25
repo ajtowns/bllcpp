@@ -49,58 +49,76 @@ static std::string HexStr(const Span<const uint8_t> s)
     return rv;
 }
 
-void ElRef::decref(Elem* el)
+template<typename Fn>
+static void mutate_elem(Elem& el, Fn&& fn)
 {
-    Elem* rest{nullptr};
-    LogTrace(BCLog::BLL, "decref(%p)\n", el);
-    while (el) {
-        LogTrace(BCLog::BLL, "decref %p type=%d refcount=%d rest=%p\n", el, el->get_type(), el->get_refcount(), rest);
-        if (!el->decref()) {
-            el = nullptr;
-        } else {
-            Elem* a{nullptr};
-            Elem* b{nullptr};
-            ElView{el}.visit([&](auto d) { d.dealloc(a, b); });
-
-            if (!a || !a->decref()) a = nullptr;
-            if (!b || !a->decref()) b = nullptr;
-            if (a && b) {
-                LogTrace(BCLog::BLL, "Preserved container of %d at %p refcount=%d\n", el->get_type(), el, el->get_refcount());
-                ElConcept<CONS>::init_as(*el, ElView(b), ElView(rest));
-                rest = el;
-                el = a;
-            } else {
-                if (b) std::swap(a, b);
-                LogTrace(BCLog::BLL, "Deleted %d at %p\n", el->get_type(), el);
-                //delete el; // XXX Allocator
-                el = nullptr;
-                el = a;
-            }
+    PerConcept([&](auto et) {
+        using ET = decltype(et);
+        if (TypeIsConcept<ET>(el.get_type())) {
+            fn(ElConcept<ET>(el));
         }
-        while (!el && rest) {
-            Elem* next{nullptr};
-            ElView(rest).visit([&](auto d) { d.dealloc(el, next); });
-            LogTrace(BCLog::BLL, "Deleted (2) %d at %p\n", rest->get_type(), rest);
-            //delete rest; // XXX Allocator
-            rest = next;
-        }
-    }
-}
-
-void ElConcept<CONS>::dealloc(Elem*& child1, Elem*& child2)
-{
-    ElVariantHelper<CONS>::mutate(*this, [&](ElData<CONS,0>& eldata) {
-        child1 = eldata.left.steal();
-        child2 = eldata.right.steal();
     });
 }
 
-void ElConcept<FUNC>::dealloc(Elem*& child1, Elem*& child2)
+void ElRef::decref(Elem* el)
 {
-    (void)child2;
+    ElRef rest{nullptr};
+    LogTrace(BCLog::BLL, "decref(%p)\n", el);
+    while (el) {
+        LogTrace(BCLog::BLL, "decref %p type=%d refcount=%d rest=%p\n", el, el->get_type(), el->get_refcount(), rest.m_el);
+        if (!el->decref()) {
+            el = nullptr;
+        } else {
+            ElRef a{nullptr};
+            ElRef b{nullptr};
+            mutate_elem(*el, [&](auto d) { d.dealloc(a, b); });
+
+            // if this isn't the last refcount for a or b, deal with them
+            // immediately by decref'ing and ignoring
+            if (a && a.m_el->get_refcount() > 1) {
+                LogTrace(BCLog::BLL, "decref a %p type=%d refcount=%d\n", a.m_el, a.m_el->get_type(), a.m_el->get_refcount());
+                (void)a.m_el->decref();
+                a.m_el = nullptr;
+            }
+            if (b && b.m_el->get_refcount() > 1) {
+                LogTrace(BCLog::BLL, "decref a %p type=%d refcount=%d\n", b.m_el, b.m_el->get_type(), b.m_el->get_refcount());
+                (void)b.m_el->decref();
+                b.m_el = nullptr;
+            }
+
+            // simplify
+            if (b && !a) a = b.move();
+            if (!rest) rest = b.move();
+
+            if (a && b) {
+                LogTrace(BCLog::BLL, "recover %p as CONS\n", el);
+                ElConcept<CONS>::init_as(*el, b.move(), rest.move());
+                rest = ElRef(std::move(el));
+                el = a.steal();
+            } else {
+                LogTrace(BCLog::BLL, "free %p\n", el);
+                //delete el; // XXX Allocator
+                el = nullptr;
+                el = a.steal();
+            }
+        }
+        if (!el) el = rest.steal();
+    }
+}
+
+void ElConcept<CONS>::dealloc(ElRef& child1, ElRef& child2)
+{
+    ElVariantHelper<CONS>::mutate(*this, [&](ElData<CONS,0>& eldata) {
+        child1 = eldata.left.move();
+        child2 = eldata.right.move();
+    });
+}
+
+void ElConcept<FUNC>::dealloc(ElRef& child1, ElRef&)
+{
     ElVariantHelper<FUNC>::mutate(*this, util::Overloaded(
         [&](FuncExt& funcextdata) {
-            child1 = funcextdata.extdata.steal();
+            child1 = funcextdata.extdata.move();
         },
         [&](FuncNone&) { }
     ));
@@ -213,7 +231,7 @@ static ElConcept<ET> init_as_helper(Elem& el, Args&&... args)
 }
 
 ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, int64_t n) { return init_as_helper<ATOM,0>(el, n); }
-ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElView left, ElView right) { return init_as_helper<CONS,0>(el, left, right); }
+ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElRef&& left, ElRef&& right) { return init_as_helper<CONS,0>(el, std::move(left), std::move(right)); }
 ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el) { return init_as_helper<ERROR,0>(el); }
 
 template<ElConcept<FUNC>::V Variant=0>

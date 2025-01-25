@@ -67,7 +67,7 @@ template<> struct ElVariant<CONS,0>
 {
     struct ElData {
          ElRef left, right;
-         ElData(ElView left, ElView right) : left{ElRef::copy_of(left)}, right{ElRef::copy_of(right)} { }
+         ElData(ElRef&& left, ElRef&& right) : left{std::move(left)}, right{std::move(right)} { }
     };
 };
 

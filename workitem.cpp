@@ -34,9 +34,9 @@ struct WorkItem::Logic
 };
 
 
-template<> void WorkItem::Logic<class ElConcept<ATOM>>::step(StepParams&& sp, const ElConcept<ATOM>& elc) { sp.wi.fin_value(ElRef::copy_of(&elc.get_el())); }
-template<> void WorkItem::Logic<class ElConcept<CONS>>::step(StepParams&& sp, const ElConcept<CONS>& elc) { sp.wi.fin_value(ElRef::copy_of(&elc.get_el())); }
-template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, const ElConcept<ERROR>& elc) { sp.wi.fin_value(ElRef::copy_of(&elc.get_el())); }
+template<> void WorkItem::Logic<class ElConcept<ATOM>>::step(StepParams&& sp, const ElConcept<ATOM>& elc) { sp.wi.fin_value(ElRef::copy_of(elc)); }
+template<> void WorkItem::Logic<class ElConcept<CONS>>::step(StepParams&& sp, const ElConcept<CONS>& elc) { sp.wi.fin_value(ElRef::copy_of(elc)); }
+template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, const ElConcept<ERROR>& elc) { sp.wi.fin_value(ElRef::copy_of(elc)); }
 
 template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
 
@@ -61,6 +61,7 @@ template<>
 void FuncStep<Func::QUOTE>::step(const ElData<FUNC,Func::BLLEVAL>&, StepParams& sp)
 {
     // just do something weird, whatever
+    LogTrace(BCLog::BLL, "QUOTE step\n");
     sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
 }
 
@@ -68,8 +69,18 @@ template<>
 void FuncStep<Func::BLLEVAL>::step(const ElData<FUNC,Func::BLLEVAL>&, StepParams& sp)
 {
     // just do something weird, whatever
+    LogTrace(BCLog::BLL, "BLLEVAL step\n");
     sp.wi.fin_value( sp.wi.arena.mklist( sp.args.move(), sp.env.move(), sp.feedback ? sp.feedback.move() : sp.wi.arena.nil()) );
 }
+
+/* XXX
+ * want some way to have most FUNCs do similar behaviour, namely:
+ *   - run BLLEVAL over each of their args (can be common code)
+ *   - call an "opcode" thing
+ *        binop: state + arg -> state
+ *        n_args: count and track number of args seen, evaluate at once
+ *        intstate: special state + arg -> special state
+ */
 
 void WorkItem::step()
 {

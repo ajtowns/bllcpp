@@ -15,6 +15,7 @@
 
 class Arena;
 class ElView;
+class ElRef;
 struct StepParams;
 
 struct ElTypeTag { };
@@ -81,6 +82,13 @@ static consteval ElBaseType ConceptOffset()
 }
 
 template<ElType ET>
+bool TypeIsConcept(ElBaseType type)
+{
+    constexpr auto offset = ConceptOffset<ET>();
+    return (offset <= type && type < offset + ElConceptDef<ET>::variants);
+}
+
+template<ElType ET>
 class ElConcept;
 
 template<ElType _ET>
@@ -111,7 +119,7 @@ public:
 
     static ElConcept<ATOM> init_as(Elem& el, int64_t n);
 
-    void dealloc(Elem*&, Elem*&) { return; }
+    void dealloc(ElRef&, ElRef&) { return; }
 
     Span<const uint8_t> data() const LIFETIMEBOUND;
 };
@@ -123,12 +131,12 @@ public:
     // parent's constructor
     using ElConceptBase<CONS>::ElConceptBase;
 
-    static ElConcept<CONS> init_as(Elem& el, ElView left, ElView right);
+    static ElConcept<CONS> init_as(Elem& el, ElRef&& left, ElRef&& right);
 
     ElView left() const LIFETIMEBOUND;
     ElView right() const LIFETIMEBOUND;
 
-    void dealloc(Elem*& child1, Elem*& child2);
+    void dealloc(ElRef& child1, ElRef& child2);
 };
 
 template<>
@@ -140,7 +148,7 @@ public:
 
     static ElConcept<ERROR> init_as(Elem& el);
 
-    void dealloc(Elem*&, Elem*&) { };
+    void dealloc(ElRef&, ElRef&) { };
 };
 
 template<>
@@ -154,7 +162,7 @@ public:
 
     void step(StepParams& sp) const;
 
-    void dealloc(Elem*& child1, Elem*& child2);
+    void dealloc(ElRef& child1, ElRef& child2);
 };
 
 template<ElType ET,ElConcept<ET>::V>
