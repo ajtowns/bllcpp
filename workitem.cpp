@@ -101,13 +101,43 @@ void FuncStep<Func::QUOTE>::step(const ElConcept<FUNC>&, const FuncNone&, StepPa
     sp.wi.fin_value( sp.args.move() );
 }
 
+static ElView get_env(ElView env, int32_t n)
+{
+    if (n <= 0) return ElView(nullptr);
+
+    while (n > 1) {
+        if (auto lr = env.get<CONS>(); lr) {
+            if (n & 1) {
+                env = lr->right();
+            } else {
+                env = lr->left();
+            }
+            n >>= 1;
+        } else {
+            return ElView(nullptr);
+        }
+    }
+    return env;
+}
+
 template<>
 void FuncStep<Func::BLLEVAL>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
 {
     LogTrace(BCLog::BLL, "BLLEVAL step\n");
     if (auto at = sp.args.get<ATOM>(); at) {
-        // XXX: env lookup
-        sp.wi.fin_value( sp.wi.arena.mkel(3) );
+        auto n = at->small_int();
+        if (n) {
+            if (*n == 0) {
+                sp.wi.fin_value(sp.wi.arena.nil());
+                return;
+            }
+            auto el = get_env(sp.env, *n);
+            if (el) {
+                sp.wi.fin_value(ElRef::copy_of(el));
+                return;
+            }
+        }
+        sp.wi.error();
     } else if (auto lr = sp.args.get<CONS>(); lr) {
         auto l = lr->left();
         auto r = lr->right();

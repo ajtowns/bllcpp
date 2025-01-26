@@ -63,11 +63,18 @@ void test3(Arena& arena)
     run(wi);
 }
 
+void test4(Arena& arena)
+{
+    WorkItem wi(arena, arena.mkel(31), arena.mklist(1,2,3,4,5));
+    run(wi);
+}
+
 int main(void)
 {
     Arena arena;
     test1(arena);
     test2(arena);
     test3(arena);
+    test4(arena);
     return 0;
 }
