@@ -15,6 +15,7 @@ class Arena
 {
 private:
     ElRef m_nil;
+    ElRef m_one;
 
 public:
     Arena();
@@ -32,6 +33,7 @@ public:
     }
 
     ElRef nil() { return m_nil.copy(); }
+    ElRef one() { return m_one.copy(); }
     ElRef error();
 
     ElRef mkfn(Func::Func fn) { return New<FUNC>(*this, fn); }
