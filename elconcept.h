@@ -47,23 +47,25 @@ namespace Func {
 // use namespace so that we write Func::BLLEVAL like an enum class,
 // but don't use an enum class so that they convert directly into an int
 enum Func : ElBaseType {
-    BLLEVAL,
     QUOTE,
     // APPLY,
     // SOFTFORK,
     // PARTIAL,
-    // OP_HEAD,
+    OP_X,
+    OP_HEAD,
     OP_TAIL,
     // OP_RCONS,
     OP_IF,
+
+    BLLEVAL,
 };
 } // namespace
 
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{4};
+    static constexpr ElBaseType variants{6};
     static const std::array<std::string, variants> func_name;
 
-    static_assert(variants == Func::OP_IF + 1);
+    static_assert(variants == Func::BLLEVAL + 1);
 };
 
 template<ElType Target>
@@ -164,7 +166,9 @@ public:
     template<typename... T>
     static ElConcept<FUNC> init_as(Elem& el, Arena& arena, ElConcept<FUNC> alike, T&&...);
 
-    Func::Func get_fnid() const { return Func::Func(uint8_t{variant()}); }
+    static constexpr Func::Func V2FnId(V variant) { return Func::Func(uint8_t{variant}); }
+
+    Func::Func get_fnid() const { return V2FnId(variant()); }
     void step(StepParams& sp) const;
 
     void dealloc(ElRef& child1, ElRef& child2);

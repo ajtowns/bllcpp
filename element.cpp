@@ -232,10 +232,11 @@ static func_name_array gen_func_names()
     for (size_t i = 0; i < res.size(); ++i) {
         switch(static_cast<Func::Func>(i)) {
             CASE_FUNC_NAME(Func::QUOTE);
-            CASE_FUNC_NAME(Func::BLLEVAL);
-            //CASE_FUNC_NAME(Func::OP_HEAD);
+            CASE_FUNC_NAME(Func::OP_X);
+            CASE_FUNC_NAME(Func::OP_HEAD);
             CASE_FUNC_NAME(Func::OP_TAIL);
             CASE_FUNC_NAME(Func::OP_IF);
+            CASE_FUNC_NAME(Func::BLLEVAL);
         }
     }
     return res;

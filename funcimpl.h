@@ -15,12 +15,6 @@
 #include <limits>
 #include <memory>
 
-template<ElConcept<FUNC>::V Variant>
-struct FuncStep
-{
-     static void step(const ElConcept<FUNC>&, const ElData<FUNC,Variant>&, StepParams&);
-};
-
 // For functions with no internal state, just args and environment
 struct FuncNone
 {
@@ -64,11 +58,13 @@ struct FuncExtCount
     explicit FuncExtCount(Arena&) : extdata{nullptr}, count{0} { }
 };
 
-template<> struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
 template<> struct ElVariant<FUNC,Func::QUOTE> { using ElData = FuncNone; };
-//template<> struct ElVariant<FUNC,Func::OP_HEAD> { using ElData = FuncExtCount; };
+template<> struct ElVariant<FUNC,Func::OP_HEAD> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_TAIL> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_IF> { using ElData = FuncExtCount; };
+template<> struct ElVariant<FUNC,Func::OP_X> { using ElData = FuncExtCount; };
+
+template<> struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
 
 #if 0
 template<> struct ElData<FUNC,1>

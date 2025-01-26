@@ -53,13 +53,13 @@ void run(WorkItem& wi)
 
 void test2(Arena& arena)
 {
-    WorkItem wi(arena, arena.mklist(5, arena.mklist(0, 1, 9)), arena.nil());
+    WorkItem wi(arena, arena.mklist(7, arena.mklist(0, 1, 9)), arena.nil());
     run(wi);
 }
 
 void test3(Arena& arena)
 {
-    WorkItem wi(arena, arena.mklist(6, arena.New<CONS>(arena.nil(), arena.one()), arena.mklist(0, 1, 9), arena.mklist(0, 33)), arena.nil());
+    WorkItem wi(arena, arena.mklist(5, arena.New<CONS>(arena.nil(), arena.nil()), arena.mklist(0, 1, 9), arena.mklist(0, 33)), arena.nil());
     run(wi);
 }
 

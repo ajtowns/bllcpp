@@ -11,8 +11,50 @@
 
 const static std::map<uint8_t, Func::Func> bll_opcodes = {
   { 0, Func::QUOTE },
-  { 5, Func::OP_TAIL },
-  { 6, Func::OP_IF },
+  // { 1, Func::APPLY },
+  // { 2, Func::SOFTFORK },
+  // { 3, Func::PARTIAL },
+  { 4, Func::OP_X },
+  { 5, Func::OP_IF },
+  // { 6, Func::OP_RC },
+  { 7, Func::OP_HEAD },
+  { 8, Func::OP_TAIL },
+  // { 9, Func::OP_LIST },
+  // { 10, Func::OP_BINTREE },
+  // { 11, Func::OP_NOTALL },
+  // { 12, Func::OP_ALL },
+  // { 13, Func::OP_ANY },
+  // { 14, Func::OP_EQ },
+  // { 15, Func::OP_LT_STR },
+  // { 16, Func::OP_STRLEN },
+  // { 17, Func::OP_SUBSTR },
+  // { 18, Func::OP_CAT },
+  // { 19, Func::OP_NAND_BYTES },
+  // { 20, Func::OP_AND_BYTES },
+  // { 21, Func::OP_OR_BYTES },
+  // { 22, Func::OP_XOR_BYTES },
+  // { 23, Func::OP_ADD },
+  // { 24, Func::OP_SUB },
+  // { 25, Func::OP_MUL },
+  // { 26, Func::OP_MOD },
+  // { 27, Func::OP_SHIFT },
+  // { 28, ? },
+  // { 29, ? },
+  // { 30, Func::OP_SHIFT },
+  // { 31, ? },
+  // { 32, Func::OP_RD },
+  // { 33, Func::OP_WR },
+  // { 34, Func::OP_SHA256 },
+  // { 35, Func::OP_RIPEMD160 },
+  // { 36, Func::OP_HASH160 },
+  // { 37, Func::OP_HASH256 },
+  // { 38, Func::OP_BIP340_VERIFY },
+  // { 39, Func::OP_ECDSA_VERIFY },
+  // { 40, Func::OP_SECP256K1_MULADD },
+  // { 41, Func::OP_TX },
+  // { 42, Func::OP_BIP342_TXMSG },
+
+  // {(0xff, "===", op_bigeq), ## XXX shouldn't be an opcode?
 };
 
 template<typename T>
@@ -28,6 +70,12 @@ template<> void WorkItem::Logic<class ElConcept<CONS>>::step(StepParams&& sp, co
 template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, const ElConcept<ERROR>& elc) { sp.wi.fin_value(ElRef::copy_of(elc)); }
 
 template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
+
+template<ElConcept<FUNC>::V Variant>
+struct FuncStep
+{
+     static void step(const ElConcept<FUNC>&, const ElData<FUNC,Variant>&, StepParams&);
+};
 
 template<ElConcept<FUNC>::V Variant=0>
 static void func_step_helper(const ElConcept<FUNC>& ec, StepParams& sp)
@@ -77,24 +125,6 @@ void FuncStep<Func::BLLEVAL>::step(const ElConcept<FUNC>&, const FuncNone&, Step
     }
 }
 
-static ElRef tail_step(Arena& arena, ElView lst)
-{
-    if (auto lr = lst.get<CONS>(); lr) {
-        return ElRef::copy_of(lr->right());
-    } else {
-        return arena.error();
-    }
-}
-
-static ElRef if_step(Arena& arena, ElView c, ElView t, ElView f)
-{
-    if (c.is_nil()) {
-        return (f ? ElRef::copy_of(f) : arena.nil());
-    } else {
-        return (t ? ElRef::copy_of(t) : arena.one());
-    }
-}
-
 static bool extcount_helper(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp, int min_args, int max_args)
 {
     if (sp.feedback) {
@@ -141,6 +171,64 @@ static void populate(std::array<ElRef, N>& arr, ElView el, size_t remaining)
     }
 }
 
+template<Func::Func FnId>
+struct FixOpcode;
+
+template<size_t MIN, size_t MAX>
+struct FixOpcodeBase
+{
+    static constexpr size_t min = MIN;
+    static constexpr size_t max = MAX;
+};
+
+template<>
+struct FixOpcode<Func::OP_X> : FixOpcodeBase<1,1>
+{
+    static ElRef fixop(Arena& arena, ElView)
+    {
+        return arena.error();
+    }
+};
+
+template<>
+struct FixOpcode<Func::OP_HEAD> : FixOpcodeBase<1,1>
+{
+    static ElRef fixop(Arena& arena, ElView lst)
+    {
+        if (auto lr = lst.get<CONS>(); lr) {
+            return ElRef::copy_of(lr->left());
+        } else {
+            return arena.error();
+        }
+    }
+};
+
+template<>
+struct FixOpcode<Func::OP_TAIL> : FixOpcodeBase<1,1>
+{
+    static ElRef fixop(Arena& arena, ElView lst)
+    {
+        if (auto lr = lst.get<CONS>(); lr) {
+            return ElRef::copy_of(lr->right());
+        } else {
+            return arena.error();
+        }
+    }
+};
+
+template<>
+struct FixOpcode<Func::OP_IF> : FixOpcodeBase<1,3>
+{
+    static ElRef fixop(Arena& arena, ElView c, ElView t, ElView f)
+    {
+        if (c.is_nil()) {
+            return (f ? ElRef::copy_of(f) : arena.nil());
+        } else {
+            return (t ? ElRef::copy_of(t) : arena.one());
+        }
+    }
+};
+
 template<size_t N>
 static std::array<ElRef, N> mkElRefArray()
 {
@@ -149,23 +237,23 @@ static std::array<ElRef, N> mkElRefArray()
     }(std::make_index_sequence<N>{});
 }
 
-template<>
-void FuncStep<Func::OP_TAIL>::step(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp)
+template<typename Fn, typename A, typename... T>
+static auto apply_suffix(Fn&& fn, A&& suffix, T&&... prefix)
 {
-    if (extcount_helper(ec, extcount, sp, 1, 1)) return;
-    std::array<ElRef, 1> arr = mkElRefArray<1>();
-    populate(arr, extcount.extdata, extcount.count);
-    ElRef res = tail_step(sp.wi.arena, std::get<0>(arr));
-    sp.wi.fin_value(res.move());
+    auto call_suffix = [&](auto&&... args) {
+        return fn(prefix..., args...);
+    };
+    return std::apply(call_suffix, suffix);
 }
 
-template<>
-void FuncStep<Func::OP_IF>::step(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp)
+template<ElConcept<FUNC>::V Variant>
+void FuncStep<Variant>::step(const ElConcept<FUNC>& ec, const ElData<FUNC,Variant>& extcount, StepParams& sp)
 {
-    if (extcount_helper(ec, extcount, sp, 1, 3)) return;
-    std::array<ElRef, 3> arr = mkElRefArray<3>();
+    using FO = FixOpcode<ElConcept<FUNC>::V2FnId(Variant)>;
+    if (extcount_helper(ec, extcount, sp, FO::min, FO::max)) return;
+    auto arr = mkElRefArray<FO::max>();
     populate(arr, extcount.extdata, extcount.count);
-    ElRef res = if_step(sp.wi.arena, std::get<0>(arr), std::get<1>(arr), std::get<2>(arr));
+    ElRef res = apply_suffix(FO::fixop, arr, sp.wi.arena);
     sp.wi.fin_value(res.move());
 }
 
@@ -174,7 +262,7 @@ void FuncStep<Func::OP_IF>::step(const ElConcept<FUNC>& ec, const FuncExtCount& 
  *   - run BLLEVAL over each of their args (can be common code)
  *   - call an "opcode" thing
  *        binop: state + arg -> state
- *        n_args: count and track number of args seen, evaluate at once
+ *        n_args: count and track number of args seen, evaluate at once  -- done!
  *        intstate: special state + arg -> special state
  */
 
