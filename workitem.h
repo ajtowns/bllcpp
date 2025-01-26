@@ -23,6 +23,7 @@ struct Continuation
     ~Continuation() = default;
 };
 
+
 class WorkItem
 {
 public:
@@ -62,6 +63,12 @@ public:
         eval_sexpr(std::move(sexpr), std::move(env));
     }
 
+    ~WorkItem() = default;
+
+    WorkItem() = delete;
+    WorkItem(const WorkItem&) = delete;
+    WorkItem(WorkItem&&) = delete;
+
     ElView get_feedback() const LIFETIMEBOUND
     {
         return feedback.view();
@@ -74,6 +81,11 @@ public:
     void new_continuation(ElRef&& func, ElRef&& args, ElRef&& env)
     {
         continuations.emplace_back(std::move(func), std::move(args), std::move(env));
+    }
+
+    void new_continuation(Func::Func fn, ElRef&& args, ElRef&& env)
+    {
+        new_continuation(arena.mkfn(fn), std::move(args), std::move(env));
     }
 
     void eval_sexpr(ElRef&& sexpr, ElRef&& env);
@@ -89,6 +101,26 @@ public:
     }
 
     void step();
+
+    bool finished() { return continuations.empty(); }
+};
+
+struct StepParams
+{
+    WorkItem& wi;
+    ElRef args;
+    ElRef env;
+    ElRef feedback;
+
+    StepParams(WorkItem& wi, ElRef&& args, ElRef&& env, ElRef&& feedback)
+    : wi{wi}, args{std::move(args)}, env{std::move(env)}, feedback{std::move(feedback)}
+    {
+    }
+
+    StepParams() = delete;
+    StepParams(const StepParams&) = delete;
+    StepParams(StepParams&&) = default;
+    ~StepParams() = default;
 };
 
 #endif // WORKITEM_H

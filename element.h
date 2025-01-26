@@ -66,6 +66,8 @@ public:
     ElView() = default;
     ~ElView() = default;
 
+    ElView(std::nullptr_t) : m_el{nullptr} { }
+
     ElView(const ElView& other LIFETIMEBOUND) = default;
     ElView(ElView&& other) {
         m_el = other.m_el;
@@ -85,24 +87,18 @@ public:
         other.m_el = nullptr;
         return *this;
     }
-
+#if 0
     void reset()
     {
         m_el = nullptr;
     }
-
+#endif
     operator bool() const { return m_el != nullptr; }
 
     template<ElType ET>
     bool is()
     {
         return (m_el && TypeIsConcept<ET>(m_el->get_type()));
-    }
-
-    bool is_nil()
-    {
-        auto ec = get<ATOM>();
-        return (ec && ec->data().size() == 0);
     }
 
     template<ElType ET>
@@ -113,6 +109,12 @@ public:
         } else {
             return std::nullopt;
         }
+    }
+
+    bool is_nil()
+    {
+        auto ec = get<ATOM>();
+        return (ec && ec->data().size() == 0);
     }
 
     template<typename Fn>
@@ -201,7 +203,7 @@ public:
     template<typename ET>
     static ElRef copy_of(const ElConcept<ET>& ec) { return copy_of(const_cast<Elem*>(&ec.get_el())); }
 
-    ElRef copy()
+    ElRef copy() const
     {
         return ElRef::copy_of(m_el);
     }
@@ -225,6 +227,28 @@ public:
     }
 
     operator bool() const { return m_el != nullptr; }
+
+    template<ElType ET>
+    bool is()
+    {
+        return (m_el && TypeIsConcept<ET>(m_el->get_type()));
+    }
+
+    template<ElType ET>
+    std::optional<ElConcept<ET>> get() LIFETIMEBOUND
+    {
+        if (is<ET>()) {
+            return ElConcept<ET>(*m_el);
+        } else {
+            return std::nullopt;
+        }
+    }
+
+    bool is_nil()
+    {
+        auto ec = get<ATOM>();
+        return (ec && ec->data().size() == 0);
+    }
 
     std::string to_string() const { return ElRefViewHelper::to_string(view()); };
 };

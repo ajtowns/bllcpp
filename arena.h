@@ -32,6 +32,18 @@ public:
         return ElRef{std::move(el)};
     }
 
+    template<typename ED, typename... T>
+    ElRef NewFunc(Func::Func fnid, T&&... args)
+    {
+        Elem* el = new Elem;
+        LogTrace(BCLog::BLL, "Created new FUNC %d at %p\n", fnid, el);
+
+        el->set_type(ConceptOffset<FUNC>() + fnid);
+        new(&el->data_rw<uint8_t>()) ED{std::forward<decltype(args)>(args)...};
+
+        return ElRef{std::move(el)};
+    }
+
     ElRef nil() { return m_nil.copy(); }
     ElRef one() { return m_one.copy(); }
     ElRef error();

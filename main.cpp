@@ -1,4 +1,3 @@
-
 #include <element.h>
 #include <workitem.h>
 #include <elconcept.h>
@@ -6,7 +5,10 @@
 
 #include <logging.h>
 
+#include <ranges>
 #include <iostream>
+
+void test3(ElView ev=ElView{nullptr}) { (void)ev; }
 
 void test1(Arena& arena)
 {
@@ -29,22 +31,36 @@ void dump_cont(const WorkItem& wi)
 {
     auto fb = wi.get_feedback();
     if (fb) {
-        std::cout << "FB: " << fb << std::endl;
+        std::cout << "FB: " << fb.to_string() << std::endl;
     }
     auto& cs = wi.get_continuations();
-    for (auto& c : cs) {
+    for (auto& c : cs | std::views::reverse) {
         std::cout << c.func.to_string() << " " << c.args.to_string() << " ENV: " << c.env.to_string() << std::endl;
     }
     std::cout << "---" << std::endl;
 }
 
+void run(WorkItem& wi)
+{
+    std::cout << "START" << std::endl;
+    dump_cont(wi);
+    while (!wi.finished()) {
+        wi.step();
+        dump_cont(wi);
+    }
+    std::cout << "END" << std::endl;
+}
+
 void test2(Arena& arena)
 {
-    WorkItem wi(arena, arena.mklist(1, 1, 1), arena.nil());
+    WorkItem wi(arena, arena.mklist(5, arena.mklist(0, 1, 9)), arena.nil());
+    run(wi);
+}
 
-    dump_cont(wi);
-    wi.step();
-    dump_cont(wi);
+void test3(Arena& arena)
+{
+    WorkItem wi(arena, arena.mklist(6, arena.New<CONS>(arena.nil(), arena.one()), arena.mklist(0, 1, 9), arena.mklist(0, 33)), arena.nil());
+    run(wi);
 }
 
 int main(void)
@@ -52,5 +68,6 @@ int main(void)
     Arena arena;
     test1(arena);
     test2(arena);
+    test3(arena);
     return 0;
 }

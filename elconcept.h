@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include <limits>
 #include <memory>
+#include <optional>
 
 class Arena;
 class ElView;
@@ -45,25 +46,24 @@ template<> struct ElConceptDef<ERROR> { static constexpr ElBaseType variants = 1
 namespace Func {
 // use namespace so that we write Func::BLLEVAL like an enum class,
 // but don't use an enum class so that they convert directly into an int
-enum Func {
+enum Func : ElBaseType {
     BLLEVAL,
     QUOTE,
     // APPLY,
     // SOFTFORK,
     // PARTIAL,
     // OP_HEAD,
-    // OP_TAIL,
+    OP_TAIL,
     // OP_RCONS,
+    OP_IF,
 };
 } // namespace
 
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{2};
-    static constexpr uint8_t simple_func_types{2};
+    static constexpr ElBaseType variants{4};
     static const std::array<std::string, variants> func_name;
 
-    static_assert(simple_func_types == Func::QUOTE + 1);
-    static_assert(variants == Func::QUOTE + 1);
+    static_assert(variants == Func::OP_IF + 1);
 };
 
 template<ElType Target>
@@ -122,6 +122,7 @@ public:
     void dealloc(ElRef&, ElRef&) { return; }
 
     Span<const uint8_t> data() const LIFETIMEBOUND;
+    std::optional<int64_t> small_int() const;
 };
 
 template<>
@@ -160,6 +161,10 @@ public:
 
     static ElConcept<FUNC> init_as(Elem& el, Arena& arena, Func::Func fnid);
 
+    template<typename... T>
+    static ElConcept<FUNC> init_as(Elem& el, Arena& arena, ElConcept<FUNC> alike, T&&...);
+
+    Func::Func get_fnid() const { return Func::Func(uint8_t{variant()}); }
     void step(StepParams& sp) const;
 
     void dealloc(ElRef& child1, ElRef& child2);

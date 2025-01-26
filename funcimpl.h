@@ -18,7 +18,7 @@
 template<ElConcept<FUNC>::V Variant>
 struct FuncStep
 {
-     static void step(const ElData<FUNC,Variant>&, StepParams&);
+     static void step(const ElConcept<FUNC>&, const ElData<FUNC,Variant>&, StepParams&);
 };
 
 // For functions with no internal state, just args and environment
@@ -39,6 +39,8 @@ struct FuncExt
     FuncExt(std::nullptr_t) : extdata{nullptr} { }
     FuncExt(ElRef&& extdata) : extdata{std::move(extdata)} { }
     ~FuncExt() = default;
+
+    explicit FuncExt(Arena&) { }
 };
 
 struct FuncExtNil : FuncExt
@@ -46,11 +48,27 @@ struct FuncExtNil : FuncExt
     explicit FuncExtNil(Arena& arena) : FuncExt{arena.nil()} { }
 };
 
-template<>
-struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
+// For functions that want to count how many arguments have been processed
+struct FuncExtCount
+{
+    ElRef extdata{nullptr};
+    int32_t count{0};
 
-template<>
-struct ElVariant<FUNC,Func::QUOTE> { using ElData = FuncNone; };
+    FuncExtCount() = delete;
+    FuncExtCount& operator=(FuncExtCount&&) = delete;
+
+    FuncExtCount(std::nullptr_t) : extdata{nullptr}, count{0} { }
+    FuncExtCount(ElRef&& extdata, int32_t count) : extdata{std::move(extdata)}, count{count} { }
+    ~FuncExtCount() = default;
+
+    explicit FuncExtCount(Arena&) : extdata{nullptr}, count{0} { }
+};
+
+template<> struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
+template<> struct ElVariant<FUNC,Func::QUOTE> { using ElData = FuncNone; };
+//template<> struct ElVariant<FUNC,Func::OP_HEAD> { using ElData = FuncExtCount; };
+template<> struct ElVariant<FUNC,Func::OP_TAIL> { using ElData = FuncExtCount; };
+template<> struct ElVariant<FUNC,Func::OP_IF> { using ElData = FuncExtCount; };
 
 #if 0
 template<> struct ElData<FUNC,1>

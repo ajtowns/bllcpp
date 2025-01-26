@@ -120,6 +120,9 @@ void ElConcept<FUNC>::dealloc(ElRef& child1, ElRef&)
         [&](FuncExt& funcextdata) {
             child1 = funcextdata.extdata.move();
         },
+        [&](FuncExtCount& funcextdata) {
+            child1 = funcextdata.extdata.move();
+        },
         [&](FuncNone&) { }
     ));
     return;
@@ -150,6 +153,15 @@ Span<const uint8_t> ElConcept<ATOM>::data() const
     ElVariantHelper<ATOM>::visit(*this, [&](const ElData<ATOM,0>& eldata) {
         if (eldata.n == 0) res = Span<const uint8_t>(nildata, 0);
         else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&eldata.n), sizeof(eldata.n));
+    });
+    return res;
+}
+
+std::optional<int64_t> ElConcept<ATOM>::small_int() const
+{
+    int64_t res = 0;
+    ElVariantHelper<ATOM>::visit(*this, [&](const ElData<ATOM,0>& eldata) {
+        res = eldata.n;
     });
     return res;
 }
@@ -193,7 +205,14 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
         },
         [&](ElConcept<ERROR>) { res = "ERROR"; },
         [&](ElConcept<FUNC> fn) {
-            res = strprintf("FUNC<%s>", ElConceptDef<FUNC>::func_name[fn.variant()]);
+            std::string extra = "";
+            ElVariantHelper<FUNC>::visit(fn, util::Overloaded(
+                [&](const FuncNone&) { },
+                [&](const FuncExtCount& fec) {
+                    extra = strprintf("; %s", fec.extdata.to_string());
+                }
+            ));
+            res = strprintf("FUNC<%s%s>", ElConceptDef<FUNC>::func_name[fn.variant()], extra);
         }
     ));
     if (in_list) {
@@ -214,6 +233,9 @@ static func_name_array gen_func_names()
         switch(static_cast<Func::Func>(i)) {
             CASE_FUNC_NAME(Func::QUOTE);
             CASE_FUNC_NAME(Func::BLLEVAL);
+            //CASE_FUNC_NAME(Func::OP_HEAD);
+            CASE_FUNC_NAME(Func::OP_TAIL);
+            CASE_FUNC_NAME(Func::OP_IF);
         }
     }
     return res;
