@@ -19,7 +19,7 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 6, Func::OP_RC },
   { 7, Func::OP_HEAD },
   { 8, Func::OP_TAIL },
-  // { 9, Func::OP_LIST },
+  { 9, Func::OP_LIST },
   // { 10, Func::OP_BINTREE },
   // { 11, Func::OP_NOTALL },
   // { 12, Func::OP_ALL },
@@ -212,6 +212,19 @@ struct FixOpcode<Func::OP_TAIL> : FixOpcodeBase<1,1>
             return ElRef::copy_of(lr->right());
         } else {
             return arena.error();
+        }
+    }
+};
+
+template<>
+struct FixOpcode<Func::OP_LIST> : FixOpcodeBase<1,1>
+{
+    static ElRef fixop(Arena& arena, ElView lst)
+    {
+        if (lst.is<CONS>()) {
+            return arena.one();
+        } else {
+            return arena.nil();
         }
     }
 };

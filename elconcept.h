@@ -54,6 +54,7 @@ enum Func : ElBaseType {
     OP_X,
     OP_HEAD,
     OP_TAIL,
+    OP_LIST,
     // OP_RCONS,
     OP_IF,
 
@@ -62,7 +63,7 @@ enum Func : ElBaseType {
 } // namespace
 
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{6};
+    static constexpr ElBaseType variants{7};
     static const std::array<std::string, variants> func_name;
 
     static_assert(variants == Func::BLLEVAL + 1);

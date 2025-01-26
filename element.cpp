@@ -235,6 +235,7 @@ static func_name_array gen_func_names()
             CASE_FUNC_NAME(Func::OP_X);
             CASE_FUNC_NAME(Func::OP_HEAD);
             CASE_FUNC_NAME(Func::OP_TAIL);
+            CASE_FUNC_NAME(Func::OP_LIST);
             CASE_FUNC_NAME(Func::OP_IF);
             CASE_FUNC_NAME(Func::BLLEVAL);
         }
