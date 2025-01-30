@@ -20,7 +20,16 @@ class ElRef;
 struct StepParams;
 
 struct ElTypeTag { };
-struct ATOM : ElTypeTag { static constexpr std::string name = "ATOM"; };
+
+struct ATOM : ElTypeTag {
+public:
+    static constexpr std::string name = "ATOM";
+
+    // tag for an atom referencing external data
+    struct external_type { explicit external_type() = default; };
+    static constexpr external_type external;
+};
+
 struct CONS : ElTypeTag { static constexpr std::string name = "CONS"; };
 struct ERROR : ElTypeTag { static constexpr std::string name = "ERROR"; };
 struct FUNC : ElTypeTag { static constexpr std::string name = "FUNC"; };
@@ -39,7 +48,7 @@ static constexpr void PerConcept(Fn&& fn)
 template<ElType>
 struct ElConceptDef;
 
-template<> struct ElConceptDef<ATOM> { static constexpr ElBaseType variants = 1; };
+template<> struct ElConceptDef<ATOM> { static constexpr ElBaseType variants = 3; };
 template<> struct ElConceptDef<CONS> { static constexpr ElBaseType variants = 1; };
 template<> struct ElConceptDef<ERROR> { static constexpr ElBaseType variants = 1; };
 
@@ -121,8 +130,10 @@ public:
     using ElConceptBase<ATOM>::ElConceptBase;
 
     static ElConcept<ATOM> init_as(Elem& el, int64_t n);
+    static ElConcept<ATOM> init_as(Elem& el, Span<const uint8_t> data, ATOM::external_type);
+    static ElConcept<ATOM> init_as(Elem& el, Arena& arena, Span<const uint8_t> data);
 
-    void dealloc(ElRef&, ElRef&) { return; }
+    void dealloc(ElRef&, ElRef&);
 
     Span<const uint8_t> data() const LIFETIMEBOUND;
     std::optional<int64_t> small_int() const;

@@ -38,14 +38,6 @@ protected:
         return new (el) ED{std::forward<decltype(args)>(args)...};
     }
 
-#if 0
-    template<ElType ET, int V, typename... T>
-    static ElConcept<ET> init_as(Elem* el, T&&... args)
-    {
-        static_assert(false);
-    }
-#endif
-
     static std::string to_string(ElView ev, bool in_list=false);
 };
 

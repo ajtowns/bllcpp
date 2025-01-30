@@ -63,6 +63,20 @@ template<> struct ElVariant<ATOM,0>
     };
 };
 
+template<> struct ElVariant<ATOM,1>
+{
+    struct ElData {
+        Span<uint8_t> external;
+    };
+};
+
+template<> struct ElVariant<ATOM,2>
+{
+    struct ElData {
+        Span<uint8_t> owned;
+    };
+};
+
 template<> struct ElVariant<CONS,0>
 {
     struct ElData {

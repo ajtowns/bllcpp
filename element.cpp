@@ -106,6 +106,17 @@ void ElRef::decref(Elem* el)
     }
 }
 
+void ElConcept<ATOM>::dealloc(ElRef&, ElRef&)
+{
+    ElVariantHelper<ATOM>::mutate(*this, util::Overloaded(
+        [&](ElData<ATOM,0>&) { },
+        [&](ElData<ATOM,1>&) { },
+        [&](ElData<ATOM,2>& eldata) {
+            delete eldata.owned.data();
+        }
+    ));
+}
+
 void ElConcept<CONS>::dealloc(ElRef& child1, ElRef& child2)
 {
     ElVariantHelper<CONS>::mutate(*this, [&](ElData<CONS,0>& eldata) {
@@ -150,19 +161,27 @@ Span<const uint8_t> ElConcept<ATOM>::data() const
 {
     static const uint8_t nildata[0]{};
     Span<const uint8_t> res;
-    ElVariantHelper<ATOM>::visit(*this, [&](const ElData<ATOM,0>& eldata) {
-        if (eldata.n == 0) res = Span<const uint8_t>(nildata, 0);
-        else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&eldata.n), sizeof(eldata.n));
-    });
+    ElVariantHelper<ATOM>::visit(*this, util::Overloaded(
+        [&](const ElData<ATOM,0>& eldata) {
+            if (eldata.n == 0) res = Span<const uint8_t>(nildata, 0);
+            else res = Span<const uint8_t>(reinterpret_cast<const uint8_t*>(&eldata.n), sizeof(eldata.n));
+        },
+        [&](const ElData<ATOM,1>& eldata) { res = eldata.external; },
+        [&](const ElData<ATOM,2>& eldata) { res = eldata.owned; }
+    ));
     return res;
 }
 
 std::optional<int64_t> ElConcept<ATOM>::small_int() const
 {
-    int64_t res = 0;
-    ElVariantHelper<ATOM>::visit(*this, [&](const ElData<ATOM,0>& eldata) {
-        res = eldata.n;
-    });
+    // XXX this should be taking the span, then seeing if it is as small int,
+    // rather than be special cased anyway
+    std::optional<int64_t> res = 0;
+    ElVariantHelper<ATOM>::visit(*this, util::Overloaded(
+        [&](const ElData<ATOM,0>& eldata) { res = eldata.n; },
+        [&](const ElData<ATOM,1>&) { res = std::nullopt; },
+        [&](const ElData<ATOM,2>&) { res = std::nullopt; }
+    ));
     return res;
 }
 
@@ -257,6 +276,13 @@ static ElConcept<ET> init_as_helper(Elem& el, Args&&... args)
 ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, int64_t n) { return init_as_helper<ATOM,0>(el, n); }
 ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElRef&& left, ElRef&& right) { return init_as_helper<CONS,0>(el, std::move(left), std::move(right)); }
 ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el) { return init_as_helper<ERROR,0>(el); }
+
+#if 0
+ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, int64_t n)
+{
+    return init_as_helper<ATOM,0>(el, n);
+}
+#endif
 
 template<ElConcept<FUNC>::V Variant=0>
 static void init_func_as_helper(Elem& el, Arena& arena, Func::Func fnid)
