@@ -73,7 +73,7 @@ template<> struct ElVariant<ATOM,1>
 template<> struct ElVariant<ATOM,2>
 {
     struct ElData {
-        Span<uint8_t> owned;
+        Span<const uint8_t> owned;
     };
 };
 

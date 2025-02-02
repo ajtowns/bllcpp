@@ -130,7 +130,7 @@ public:
     using ElConceptBase<ATOM>::ElConceptBase;
 
     static ElConcept<ATOM> init_as(Elem& el, int64_t n);
-    static ElConcept<ATOM> init_as(Elem& el, Span<const uint8_t> data, ATOM::external_type);
+    static ElConcept<ATOM> init_as(Elem& el, Span<const uint8_t> data LIFETIMEBOUND, ATOM::external_type);
     static ElConcept<ATOM> init_as(Elem& el, Arena& arena, Span<const uint8_t> data);
 
     void dealloc(ElRef&, ElRef&);

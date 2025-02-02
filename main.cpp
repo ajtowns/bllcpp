@@ -16,12 +16,13 @@ void test1(Arena& arena)
     ElRef x{nullptr};
     {
         ElRef lucky = arena.New<ATOM>(1300);
+        ElRef trouble = arena.New<ATOM>(arena, MakeUCharSpan("Hello, world"));
         LogTrace(BCLog::BLL, "Wotzit\n");
         auto yo = lucky.copy();
         LogTrace(BCLog::BLL, "Soon\n");
         yo.reset();
         LogTrace(BCLog::BLL, "Next\n");
-        x = arena.New<CONS>(arena.mklist(1,2,arena.mklist(3,arena.mkfn(Func::BLLEVAL),3),4,5, arena.New<ERROR>()), lucky.move());
+        x = arena.New<CONS>(arena.mklist(1,2,arena.mklist(3,arena.mkfn(Func::BLLEVAL),3,trouble.move()),4,5, arena.New<ERROR>()), lucky.move());
     }
     std::cout << x.to_string() << std::endl;
     LogTrace(BCLog::BLL, "Goodbye\n");

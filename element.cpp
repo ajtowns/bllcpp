@@ -273,16 +273,26 @@ static ElConcept<ET> init_as_helper(Elem& el, Args&&... args)
     return ElConcept<ET>(el);
 }
 
-ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, int64_t n) { return init_as_helper<ATOM,0>(el, n); }
-ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElRef&& left, ElRef&& right) { return init_as_helper<CONS,0>(el, std::move(left), std::move(right)); }
-ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el) { return init_as_helper<ERROR,0>(el); }
-
-#if 0
 ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, int64_t n)
 {
     return init_as_helper<ATOM,0>(el, n);
 }
-#endif
+
+ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, Arena& arena, Span<const uint8_t> data)
+{
+    (void)arena; // XXX use arena to allocate memory
+    uint8_t* own = new uint8_t[data.size()];
+    memcpy(own, data.data(), data.size());
+    return init_as_helper<ATOM,1>(el, Span<uint8_t>(own, data.size()));
+}
+
+ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, Span<const uint8_t> data, ATOM::external_type)
+{
+    return init_as_helper<ATOM,2>(el, data);
+}
+
+ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElRef&& left, ElRef&& right) { return init_as_helper<CONS,0>(el, std::move(left), std::move(right)); }
+ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el) { return init_as_helper<ERROR,0>(el); }
 
 template<ElConcept<FUNC>::V Variant=0>
 static void init_func_as_helper(Elem& el, Arena& arena, Func::Func fnid)
