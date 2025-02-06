@@ -48,10 +48,13 @@ public:
     ElRef one() { return m_one.copy(); }
     ElRef error();
 
+    ElRef mkbool(bool b) { return b ? one() : nil(); }
+
     ElRef mkfn(Func::Func fn) { return New<FUNC>(*this, fn); }
 
     inline ElRef mkel(ElRef&& e) { return e.move(); }
     ElRef mkel(int64_t v);
+    ElRef mkel(Func::Func fn) { return mkel(get_opcode(fn)); }
 
     inline ElRef mklist() { return nil(); }
     inline ElRef mklist(auto&& head, auto&&... args)

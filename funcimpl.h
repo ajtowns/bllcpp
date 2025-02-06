@@ -65,8 +65,11 @@ template<> struct ElVariant<FUNC,Func::OP_TAIL> { using ElData = FuncExtCount; }
 template<> struct ElVariant<FUNC,Func::OP_LIST> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_IF> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_X> { using ElData = FuncExtCount; };
+template<> struct ElVariant<FUNC,Func::OP_SUBSTR> { using ElData = FuncExtCount; };
 
+template<> struct ElVariant<FUNC,Func::OP_LT_STR> { using ElData = FuncExt; };
 template<> struct ElVariant<FUNC,Func::OP_STRLEN> { using ElData = FuncExtNil; };
+template<> struct ElVariant<FUNC,Func::OP_CAT> { using ElData = FuncExtNil; };
 
 template<> struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
 

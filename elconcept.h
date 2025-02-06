@@ -72,10 +72,10 @@ enum Func : ElBaseType {
     // OP_ALL,
     // OP_ANY,
     // OP_EQ,
-    // OP_LT_STR,
+    OP_LT_STR,
     OP_STRLEN,
-    // OP_SUBSTR,
-    // OP_CAT,
+    OP_SUBSTR,
+    OP_CAT,
     // OP_NAND_BYTES,
     // OP_AND_BYTES,
     // OP_OR_BYTES,
@@ -102,8 +102,10 @@ enum Func : ElBaseType {
 };
 } // namespace
 
+int64_t get_opcode(Func::Func fn);
+
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{8};
+    static constexpr ElBaseType variants{11};
     static const std::array<std::string, variants> func_name;
 
     static_assert(variants == Func::BLLEVAL + 1);
@@ -163,6 +165,7 @@ public:
     static ElConcept<ATOM> init_as(Elem& el, int64_t n);
     static ElConcept<ATOM> init_as(Elem& el, Span<const uint8_t> data LIFETIMEBOUND, ATOM::external_type);
     static ElConcept<ATOM> init_as(Elem& el, Arena& arena, Span<const uint8_t> data);
+    static ElConcept<ATOM> init_as(Elem& el, Arena& arena, size_t size, Span<uint8_t>& data);
 
     void dealloc(ElRef&, ElRef&);
 

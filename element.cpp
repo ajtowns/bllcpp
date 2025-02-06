@@ -12,6 +12,7 @@
 
 #include <logging.h>
 
+#include <cstring>
 #include <stddef.h>
 #include <stdint.h>
 #include <limits>
@@ -260,8 +261,17 @@ ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, Arena& arena, Span<const uint
 {
     (void)arena; // XXX use arena to allocate memory
     uint8_t* own = new uint8_t[data.size()];
-    memcpy(own, data.data(), data.size());
+    std::memcpy(own, data.data(), data.size());
     return init_as_helper<ATOM,1>(el, Span<uint8_t>(own, data.size()));
+}
+
+ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, Arena& arena, size_t size, Span<uint8_t>& data)
+{
+    (void)arena; // XXX use arena to allocate memory
+    uint8_t* own = new uint8_t[size];
+    std::memset(own, 0, size);
+    data = Span<uint8_t>(own, size);
+    return init_as_helper<ATOM,1>(el, data);
 }
 
 ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, Span<const uint8_t> data, ATOM::external_type)

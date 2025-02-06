@@ -54,7 +54,7 @@ void run(WorkItem& wi)
 
 void test2(Arena& arena)
 {
-    WorkItem wi(arena, arena.mklist(7, arena.mklist(0, 1, 9)), arena.nil());
+    WorkItem wi(arena, arena.mklist(Func::OP_HEAD, arena.mklist(Func::QUOTE, 1, 9)), arena.nil());
     run(wi);
 }
 
@@ -73,7 +73,15 @@ void test4(Arena& arena)
 void test5(Arena& arena)
 {
     auto q = [&](auto e) { return arena.New<CONS>(arena.nil(), arena.mkel(e)); };
-    WorkItem wi(arena, arena.mklist(16, q(1), q(1000), q(100000)), arena.nil());
+    WorkItem wi(arena, arena.mklist(Func::OP_STRLEN, q(1), q(1000), q(100000)), arena.nil());
+    run(wi);
+}
+
+void test6(Arena& arena)
+{
+    std::cout << "test 6" << std::endl;
+    auto q = [&](auto e) { return arena.New<CONS>(arena.nil(), arena.mkel(e)); };
+    WorkItem wi(arena, arena.mklist(Func::OP_CAT, q(1), q(1000), q(100000)), arena.nil());
     run(wi);
 }
 
@@ -85,5 +93,6 @@ int main(void)
     test3(arena);
     test4(arena);
     test5(arena);
+    test6(arena);
     return 0;
 }

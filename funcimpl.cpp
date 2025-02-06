@@ -6,6 +6,7 @@
 #include <elimpl.h>
 #include <funcimpl.h>
 
+#include <cstring>
 #include <map>
 #include <type_traits>
 
@@ -25,10 +26,10 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 12, Func::OP_ALL },
   // { 13, Func::OP_ANY },
   // { 14, Func::OP_EQ },
-  // { 15, Func::OP_LT_STR },
+  { 15, Func::OP_LT_STR },
   { 16, Func::OP_STRLEN },
-  // { 17, Func::OP_SUBSTR },
-  // { 18, Func::OP_CAT },
+  { 17, Func::OP_SUBSTR },
+  { 18, Func::OP_CAT },
   // { 19, Func::OP_NAND_BYTES },
   // { 20, Func::OP_AND_BYTES },
   // { 21, Func::OP_OR_BYTES },
@@ -57,6 +58,13 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // {(0xff, "===", op_bigeq), ## XXX shouldn't be an opcode?
 };
 
+int64_t get_opcode(Func::Func fn)
+{
+    for (const auto& [opcode, fnid] : bll_opcodes) {
+        if (fn == fnid) return opcode;
+    }
+    return -1;
+}
 
 using func_name_array = std::array<std::string, ElConceptDef<FUNC>::variants>;
 
@@ -72,7 +80,10 @@ static func_name_array gen_func_names()
             CASE_FUNC_NAME(Func::OP_TAIL);
             CASE_FUNC_NAME(Func::OP_LIST);
             CASE_FUNC_NAME(Func::OP_IF);
+            CASE_FUNC_NAME(Func::OP_LT_STR);
             CASE_FUNC_NAME(Func::OP_STRLEN);
+            CASE_FUNC_NAME(Func::OP_SUBSTR);
+            CASE_FUNC_NAME(Func::OP_CAT);
             CASE_FUNC_NAME(Func::BLLEVAL);
         }
     }
@@ -248,11 +259,55 @@ struct FixOpcode<Func::OP_LIST> : FixOpcodeBase<1,1>
 {
     static ElRef fixop(Arena& arena, ElView lst)
     {
-        if (lst.is<CONS>()) {
-            return arena.one();
+        return arena.mkbool(lst.is<CONS>());
+    }
+};
+
+template<>
+struct FixOpcode<Func::OP_SUBSTR> : FixOpcodeBase<1,3>
+{
+    static ElRef fixop(Arena& arena, ElView str, ElView fst, ElView lst)
+    {
+        if (!str.is<ATOM>()) return arena.error();
+        if (fst && !fst.is<ATOM>()) return arena.error();
+        if (lst && !lst.is<ATOM>()) return arena.error();
+
+        auto str_s = str.get<ATOM>()->data();
+
+        int64_t sz = str_s.size();
+
+        int64_t f = fst ? fst.get<ATOM>()->small_int_or(sz) : 0;
+        int64_t l = lst ? lst.get<ATOM>()->small_int_or(0) : sz;
+        if (f >= l || f >= sz || l <= 0) return arena.nil();
+        if (f == 0 && l == sz) return ElRef::copy_of(str);
+        return arena.New<ATOM>(arena, str_s.subspan(f, l));
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_LT_STR>
+{
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        if (!arg.is<ATOM>()) return arena.error();
+        if (state && !state.is<ATOM>()) return ElRef::copy_of(state);
+        if (!state) return ElRef::copy_of(arg);
+
+        auto state_s = state.get<ATOM>()->data();
+        auto arg_s = arg.get<ATOM>()->data();
+
+        auto r = std::memcmp(state_s.data(), arg_s.data(), std::min(state_s.size(), arg_s.size()));
+
+        if (r > 0 || (r == 0 && state_s.size() >= arg_s.size())) {
+            return arena.New<CONS>(arena.nil(), arena.nil());
         } else {
-            return arena.nil();
+            return ElRef::copy_of(arg);
         }
+    }
+
+    static ElRef finish(Arena& arena, ElView state)
+    {
+        return arena.mkbool(!state || state.is<ATOM>());
     }
 };
 
@@ -266,7 +321,29 @@ struct BinOpcode<Func::OP_STRLEN> : BinOpcodeBase
             int64_t n = (st_a ? st_a->small_int_or(0) : 0);
             return arena.mkel(n + arg_a->data().size());
         } else {
-LogTrace(BCLog::BLL, "arg was not an atom %s\n", arg.to_string());
+            return arena.error();
+        }
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_CAT> : BinOpcodeBase
+{
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        auto st_a = state.get<ATOM>();
+        if (auto arg_a = arg.get<ATOM>(); st_a && arg_a) {
+            auto st_s = st_a->data();
+            auto arg_s = arg_a->data();
+
+            if (arg_s.size() == 0) return ElRef::copy_of(state);
+            if (st_s.size() == 0) return ElRef::copy_of(arg);
+            Span<uint8_t> res_s;
+            auto res = arena.New<ATOM>(arena, st_s.size() + arg_s.size(), res_s);
+            std::memcpy(res_s.data(), st_s.data(), st_s.size());
+            std::memcpy(res_s.data() + st_s.size(), arg_s.data(), arg_s.size());
+            return res.move();
+        } else {
             return arena.error();
         }
     }
