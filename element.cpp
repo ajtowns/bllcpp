@@ -243,31 +243,6 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
     }
 }
 
-
-using func_name_array = std::array<std::string, ElConceptDef<FUNC>::variants>;
-
-#define CASE_FUNC_NAME(F) case F: res[F] = #F; break
-static func_name_array gen_func_names()
-{
-    func_name_array res;
-    for (size_t i = 0; i < res.size(); ++i) {
-        switch(static_cast<Func::Func>(i)) {
-            CASE_FUNC_NAME(Func::QUOTE);
-            CASE_FUNC_NAME(Func::OP_X);
-            CASE_FUNC_NAME(Func::OP_HEAD);
-            CASE_FUNC_NAME(Func::OP_TAIL);
-            CASE_FUNC_NAME(Func::OP_LIST);
-            CASE_FUNC_NAME(Func::OP_IF);
-            CASE_FUNC_NAME(Func::OP_STRLEN);
-            CASE_FUNC_NAME(Func::BLLEVAL);
-        }
-    }
-    return res;
-}
-#undef CASE_FUNC_NAME
-
-const func_name_array ElConceptDef<FUNC>::func_name = gen_func_names();
-
 template<ElType ET, ElConcept<ET>::V Variant, typename... Args>
 static ElConcept<ET> init_as_helper(Elem& el, Args&&... args)
 {

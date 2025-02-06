@@ -70,6 +70,13 @@ void test4(Arena& arena)
     run(wi);
 }
 
+void test5(Arena& arena)
+{
+    auto q = [&](auto e) { return arena.New<CONS>(arena.nil(), arena.mkel(e)); };
+    WorkItem wi(arena, arena.mklist(16, q(1), q(1000), q(100000)), arena.nil());
+    run(wi);
+}
+
 int main(void)
 {
     Arena arena;
@@ -77,5 +84,6 @@ int main(void)
     test2(arena);
     test3(arena);
     test4(arena);
+    test5(arena);
     return 0;
 }

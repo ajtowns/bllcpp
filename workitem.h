@@ -123,4 +123,11 @@ struct StepParams
     ~StepParams() = default;
 };
 
+template<typename T>
+struct WorkItem::Logic
+{
+    Logic() = delete;
+    static void step(StepParams&& sp, const T& fn);
+};
+
 #endif // WORKITEM_H
