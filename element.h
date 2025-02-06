@@ -58,7 +58,7 @@ public:
     ElView() = default;
     ~ElView() = default;
 
-    ElView(std::nullptr_t) : m_el{nullptr} { }
+    explicit ElView(std::nullptr_t) : m_el{nullptr} { }
 
     ElView(const ElView& other LIFETIMEBOUND) = default;
     ElView(ElView&& other) {
@@ -150,7 +150,7 @@ protected:
 
 public:
     ElRef() = delete;
-    ElRef(std::nullptr_t) : m_el{nullptr} { }
+    explicit ElRef(std::nullptr_t) : m_el{nullptr} { }
     ElRef(const ElRef&) = delete;
     ElRef& operator=(const ElRef& other) = delete;
 

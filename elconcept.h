@@ -60,19 +60,50 @@ enum Func : ElBaseType {
     // APPLY,
     // SOFTFORK,
     // PARTIAL,
+
     OP_X,
+    OP_IF,
+    // OP_RC,
     OP_HEAD,
     OP_TAIL,
     OP_LIST,
-    // OP_RCONS,
-    OP_IF,
+    // OP_BINTREE,
+    // OP_NOTALL,
+    // OP_ALL,
+    // OP_ANY,
+    // OP_EQ,
+    // OP_LT_STR,
+    OP_STRLEN,
+    // OP_SUBSTR,
+    // OP_CAT,
+    // OP_NAND_BYTES,
+    // OP_AND_BYTES,
+    // OP_OR_BYTES,
+    // OP_XOR_BYTES,
+    // OP_ADD,
+    // OP_SUB,
+    // OP_MUL,
+    // OP_MOD,
+    // OP_SHIFT,
+    // OP_SHIFT,
+    // OP_RD,
+    // OP_WR,
+    // OP_SHA256,
+    // OP_RIPEMD160,
+    // OP_HASH160,
+    // OP_HASH256,
+    // OP_BIP340_VERIFY,
+    // OP_ECDSA_VERIFY,
+    // OP_SECP256K1_MULADD,
+    // OP_TX,
+    // OP_BIP342_TXMSG,
 
     BLLEVAL,
 };
 } // namespace
 
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{7};
+    static constexpr ElBaseType variants{8};
     static const std::array<std::string, variants> func_name;
 
     static_assert(variants == Func::BLLEVAL + 1);
@@ -137,6 +168,7 @@ public:
 
     Span<const uint8_t> data() const LIFETIMEBOUND;
     std::optional<int64_t> small_int() const;
+    int64_t small_int_or(int64_t def) const { return small_int().value_or(def); }
 };
 
 template<>

@@ -59,11 +59,14 @@ struct FuncExtCount
 };
 
 template<> struct ElVariant<FUNC,Func::QUOTE> { using ElData = FuncNone; };
+
 template<> struct ElVariant<FUNC,Func::OP_HEAD> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_TAIL> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_LIST> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_IF> { using ElData = FuncExtCount; };
 template<> struct ElVariant<FUNC,Func::OP_X> { using ElData = FuncExtCount; };
+
+template<> struct ElVariant<FUNC,Func::OP_STRLEN> { using ElData = FuncExtNil; };
 
 template<> struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
 

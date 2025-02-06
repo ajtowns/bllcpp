@@ -26,7 +26,7 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 13, Func::OP_ANY },
   // { 14, Func::OP_EQ },
   // { 15, Func::OP_LT_STR },
-  // { 16, Func::OP_STRLEN },
+  { 16, Func::OP_STRLEN },
   // { 17, Func::OP_SUBSTR },
   // { 18, Func::OP_CAT },
   // { 19, Func::OP_NAND_BYTES },
@@ -71,11 +71,15 @@ template<> void WorkItem::Logic<class ElConcept<ERROR>>::step(StepParams&& sp, c
 
 template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
 
-template<ElConcept<FUNC>::V Variant>
+template<typename T, ElConcept<FUNC>::V Variant>
 struct FuncStep
 {
-     static void step(const ElConcept<FUNC>&, const ElData<FUNC,Variant>&, StepParams&);
+     static_assert(std::is_same_v<ElData<FUNC,Variant>, T>);
+     static void step(const ElConcept<FUNC>&, const T&, StepParams& sp);
 };
+
+template<ElConcept<FUNC>::V Variant>
+using FuncStepV = FuncStep<ElData<FUNC,Variant>, Variant>;
 
 template<ElConcept<FUNC>::V Variant=0>
 static void func_step_helper(const ElConcept<FUNC>& ec, StepParams& sp)
@@ -87,15 +91,16 @@ static void func_step_helper(const ElConcept<FUNC>& ec, StepParams& sp)
         }
     }
     auto& eld = ec.get_el().data_ro<ElData<FUNC,Variant>>();
-    return FuncStep<Variant>::step(ec, eld, sp);
+    return FuncStepV<Variant>::step(ec, eld, sp);
 }
+
 void ElConcept<FUNC>::step(StepParams& sp) const
 {
     func_step_helper(*this, sp);
 }
 
 template<>
-void FuncStep<Func::QUOTE>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
+void FuncStepV<Func::QUOTE>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
 {
     LogTrace(BCLog::BLL, "QUOTE step\n");
     sp.wi.fin_value( sp.args.move() );
@@ -121,7 +126,7 @@ static ElView get_env(ElView env, int32_t n)
 }
 
 template<>
-void FuncStep<Func::BLLEVAL>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
+void FuncStepV<Func::BLLEVAL>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
 {
     LogTrace(BCLog::BLL, "BLLEVAL step\n");
     if (auto at = sp.args.get<ATOM>(); at) {
@@ -155,35 +160,6 @@ void FuncStep<Func::BLLEVAL>::step(const ElConcept<FUNC>&, const FuncNone&, Step
     }
 }
 
-static bool extcount_helper(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp, int min_args, int max_args)
-{
-    if (sp.feedback) {
-        auto newed = (extcount.count == 0 ? sp.feedback.move() : sp.wi.arena.New<CONS>(sp.feedback.move(), extcount.extdata.copy()));
-        auto newfn = sp.wi.arena.NewFunc<FuncExtCount>(ec.get_fnid(), newed.move(), extcount.count + 1);
-        sp.wi.new_continuation(newfn.move(), sp.args.move(), sp.env.move());
-        return true;
-    } else if (auto lr = sp.args.get<CONS>(); lr) {
-        if (extcount.count >= max_args) {
-            sp.wi.error();
-            return true;
-        } else {
-            auto l = lr->left();
-            auto r = lr->right();
-            sp.wi.new_continuation(ElRef::copy_of(ec), ElRef::copy_of(r), sp.env.copy());
-            sp.wi.new_continuation(Func::BLLEVAL, ElRef::copy_of(l), sp.env.move());
-            return true;
-        }
-    } else if (!sp.args.is_nil()) {
-        sp.wi.error();
-        return true;
-    } else if (extcount.count < min_args) {
-        sp.wi.error();
-        return true;
-    } else {
-        return false; // more work to do
-    }
-}
-
 template<size_t N, size_t I=0>
 static void populate(std::array<ElRef, N>& arr, ElView el, size_t remaining)
 {
@@ -200,6 +176,14 @@ static void populate(std::array<ElRef, N>& arr, ElView el, size_t remaining)
         }
     }
 }
+
+template<Func::Func FnId>
+struct BinOpcode;
+
+struct BinOpcodeBase
+{
+    static ElRef finish(Arena&, ElView state) { return ElRef::copy_of(state); }
+};
 
 template<Func::Func FnId>
 struct FixOpcode;
@@ -260,6 +244,21 @@ struct FixOpcode<Func::OP_LIST> : FixOpcodeBase<1,1>
 };
 
 template<>
+struct BinOpcode<Func::OP_STRLEN> : BinOpcodeBase
+{
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        auto st_a = state.get<ATOM>();
+        if (auto arg_a = arg.get<ATOM>(); arg_a) {
+            int64_t n = (st_a ? st_a->small_int_or(0) : 0);
+            return arena.mkel(n + arg_a->data().size());
+        } else {
+            return arena.nil();
+        }
+    }
+};
+
+template<>
 struct FixOpcode<Func::OP_IF> : FixOpcodeBase<1,3>
 {
     static ElRef fixop(Arena& arena, ElView c, ElView t, ElView f)
@@ -289,25 +288,85 @@ static auto apply_suffix(Fn&& fn, A&& suffix, T&&... prefix)
     return std::apply(call_suffix, suffix);
 }
 
-template<ElConcept<FUNC>::V Variant>
-void FuncStep<Variant>::step(const ElConcept<FUNC>& ec, const ElData<FUNC,Variant>& extcount, StepParams& sp)
+// returns true if it can complete processing
+static bool blleval_helper(const ElConcept<FUNC>& ec, StepParams& sp)
 {
-    using FO = FixOpcode<ElConcept<FUNC>::V2FnId(Variant)>;
-    if (extcount_helper(ec, extcount, sp, FO::min, FO::max)) return;
-    auto arr = mkElRefArray<FO::max>();
-    populate(arr, extcount.extdata, extcount.count);
-    ElRef res = apply_suffix(FO::fixop, arr, sp.wi.arena);
-    sp.wi.fin_value(res.move());
+    if (sp.feedback) {
+        return false;
+    } else if (auto lr = sp.args.get<CONS>(); lr) {
+        auto l = lr->left();
+        auto r = lr->right();
+        sp.wi.new_continuation(ElRef::copy_of(ec), ElRef::copy_of(r), sp.env.copy());
+        sp.wi.new_continuation(Func::BLLEVAL, ElRef::copy_of(l), sp.env.move());
+        return true;
+    } else if (!sp.args.is_nil()) {
+        sp.wi.error();
+        return true;
+    } else {
+        return false;
+    }
 }
 
-/* XXX
- * want some way to have most FUNCs do similar behaviour, namely:
- *   - run BLLEVAL over each of their args (can be common code)
- *   - call an "opcode" thing
- *        binop: state + arg -> state
- *        n_args: count and track number of args seen, evaluate at once  -- done!
- *        intstate: special state + arg -> special state
- */
+static bool extcount_helper(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp, int min_args, int max_args)
+{
+    if (blleval_helper(ec, sp)) return true;
+
+    if (sp.feedback) {
+        if (extcount.count >= max_args) {
+            sp.wi.error();
+            return true;
+        }
+        auto newed = (extcount.count == 0 ? sp.feedback.move() : sp.wi.arena.New<CONS>(sp.feedback.move(), extcount.extdata.copy()));
+        auto newfn = sp.wi.arena.NewFunc<FuncExtCount>(ec.get_fnid(), newed.move(), extcount.count + 1);
+        sp.wi.new_continuation(newfn.move(), sp.args.move(), sp.env.move());
+        return true;
+    }
+
+    // no more args to process, so finalise
+    if (extcount.count < min_args) {
+        sp.wi.error();
+        return true;
+    }
+    return false;
+}
+
+template<ElConcept<FUNC>::V Variant>
+struct FuncStep<FuncExtCount, Variant>
+{
+    static_assert(std::is_same_v<ElData<FUNC,Variant>, FuncExtCount>);
+    static void step(const ElConcept<FUNC>&ec, const FuncExtCount& extcount, StepParams& sp)
+    {
+        using FO = FixOpcode<ElConcept<FUNC>::V2FnId(Variant)>;
+        if (extcount_helper(ec, extcount, sp, FO::min, FO::max)) return;
+
+        // finalise
+        auto arr = mkElRefArray<FO::max>();
+        populate(arr, extcount.extdata, extcount.count);
+        ElRef res = apply_suffix(FO::fixop, arr, sp.wi.arena);
+        sp.wi.fin_value(res.move());
+    }
+};
+
+template<ElConcept<FUNC>::V Variant>
+struct FuncStep<FuncExt, Variant>
+{
+    static_assert(std::is_base_of_v<FuncExt, ElData<FUNC,Variant>>);
+    static void step(const ElConcept<FUNC>&ec, const FuncExt& ext, StepParams& sp)
+    {
+        using BO = BinOpcode<ElConcept<FUNC>::V2FnId(Variant)>;
+        if (blleval_helper(ec, sp)) return;
+        if (sp.feedback) {
+            ElRef newstate = BO::binop(sp.wi.arena, ext.extdata, sp.feedback.view());
+            auto newfn = sp.wi.arena.NewFunc<FuncExt>(ec.get_fnid(), newstate.move());
+            sp.wi.new_continuation(newfn.move(), sp.args.move(), sp.env.move());
+        } else {
+            sp.wi.fin_value(BO::finish(sp.wi.arena, ext.extdata));
+        }
+    }
+};
+
+template<ElConcept<FUNC>::V Variant>
+struct FuncStep<FuncExtNil, Variant> : FuncStep<FuncExt, Variant> { };
 
 void WorkItem::step()
 {

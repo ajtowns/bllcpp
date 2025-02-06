@@ -17,7 +17,6 @@
 #include <limits>
 #include <memory>
 
-
 // from crypto/hex_base.cpp
 namespace {
 using ByteAsHex = std::array<char, 2>;
@@ -227,6 +226,9 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
             std::string extra = "";
             ElVariantHelper<FUNC>::visit(fn, util::Overloaded(
                 [&](const FuncNone&) { },
+                [&](const FuncExt& fe) {
+                    extra = strprintf("; %s", fe.extdata.to_string());
+                },
                 [&](const FuncExtCount& fec) {
                     extra = strprintf("; %s", fec.extdata.to_string());
                 }
@@ -256,6 +258,7 @@ static func_name_array gen_func_names()
             CASE_FUNC_NAME(Func::OP_TAIL);
             CASE_FUNC_NAME(Func::OP_LIST);
             CASE_FUNC_NAME(Func::OP_IF);
+            CASE_FUNC_NAME(Func::OP_STRLEN);
             CASE_FUNC_NAME(Func::BLLEVAL);
         }
     }
