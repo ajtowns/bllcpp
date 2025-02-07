@@ -22,9 +22,9 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   { 8, Func::OP_TAIL },
   { 9, Func::OP_LIST },
   // { 10, Func::OP_BINTREE },
-  // { 11, Func::OP_NOTALL },
-  // { 12, Func::OP_ALL },
-  // { 13, Func::OP_ANY },
+  { 11, Func::OP_NOTALL },
+  { 12, Func::OP_ALL },
+  { 13, Func::OP_ANY },
   // { 14, Func::OP_EQ },
   { 15, Func::OP_LT_STR },
   { 16, Func::OP_STRLEN },
@@ -80,6 +80,9 @@ static func_name_array gen_func_names()
             CASE_FUNC_NAME(Func::OP_TAIL);
             CASE_FUNC_NAME(Func::OP_LIST);
             CASE_FUNC_NAME(Func::OP_IF);
+            CASE_FUNC_NAME(Func::OP_NOTALL);
+            CASE_FUNC_NAME(Func::OP_ALL);
+            CASE_FUNC_NAME(Func::OP_ANY);
             CASE_FUNC_NAME(Func::OP_LT_STR);
             CASE_FUNC_NAME(Func::OP_STRLEN);
             CASE_FUNC_NAME(Func::OP_SUBSTR);
@@ -281,6 +284,78 @@ struct FixOpcode<Func::OP_SUBSTR> : FixOpcodeBase<1,3>
         if (f >= l || f >= sz || l <= 0) return arena.nil();
         if (f == 0 && l == sz) return ElRef::copy_of(str);
         return arena.New<ATOM>(arena, str_s.subspan(f, l));
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_NOTALL>
+{
+    // state = nullptr at start; false
+    // any nil => state = one()
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        if (!state && arg.is_nil()) {
+            return arena.one();
+        } else {
+            return ElRef::copy_of(state);
+        }
+    }
+
+    static ElRef finish(Arena& arena, ElView state)
+    {
+        if (!state) {
+            return arena.nil();
+        } else {
+            return ElRef::copy_of(state);
+        }
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_ALL>
+{
+    // state = nullptr at start; true
+    // any nil => state = nil()
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        if (!state && arg.is_nil()) {
+            return arena.nil();
+        } else {
+            return ElRef::copy_of(state);
+        }
+    }
+
+    static ElRef finish(Arena& arena, ElView state)
+    {
+        if (!state) {
+            return arena.one();
+        } else {
+            return ElRef::copy_of(state);
+        }
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_ANY>
+{
+    // state = nullptr at start; false
+    // any not nil => state = one()
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        if (!state && !arg.is_nil()) {
+            return arena.one();
+        } else {
+            return ElRef::copy_of(state);
+        }
+    }
+
+    static ElRef finish(Arena& arena, ElView state)
+    {
+        if (!state) {
+            return arena.nil();
+        } else {
+            return ElRef::copy_of(state);
+        }
     }
 };
 

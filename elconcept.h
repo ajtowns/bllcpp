@@ -68,9 +68,9 @@ enum Func : ElBaseType {
     OP_TAIL,
     OP_LIST,
     // OP_BINTREE,
-    // OP_NOTALL,
-    // OP_ALL,
-    // OP_ANY,
+    OP_NOTALL,
+    OP_ALL,
+    OP_ANY,
     // OP_EQ,
     OP_LT_STR,
     OP_STRLEN,
@@ -105,7 +105,7 @@ enum Func : ElBaseType {
 int64_t get_opcode(Func::Func fn);
 
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{11};
+    static constexpr ElBaseType variants{14};
     static const std::array<std::string, variants> func_name;
 
     static_assert(variants == Func::BLLEVAL + 1);
