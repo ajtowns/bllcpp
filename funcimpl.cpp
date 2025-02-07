@@ -41,7 +41,7 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 27, Func::OP_SHIFT },
   // { 28, ? },
   // { 29, ? },
-  // { 30, Func::OP_SHIFT },
+  // { 30, Func::OP_LT_NUM },
   // { 31, ? },
   // { 32, Func::OP_RD },
   // { 33, Func::OP_WR },

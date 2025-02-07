@@ -85,7 +85,7 @@ enum Func : ElBaseType {
     // OP_MUL,
     // OP_MOD,
     // OP_SHIFT,
-    // OP_SHIFT,
+    // OP_LT_NUM,
     // OP_RD,
     // OP_WR,
     // OP_SHA256,
