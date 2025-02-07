@@ -4,7 +4,6 @@
 #include <element.h>
 #include <arena.h>
 #include <elimpl.h>
-#include <funcimpl.h>
 
 #include <map>
 #include <type_traits>

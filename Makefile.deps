@@ -1,4 +1,5 @@
-element.o: elem.h element.h elconcept.h elimpl.h arena.h funcimpl.h
+element.o: elem.h element.h elconcept.h elimpl.h arena.h
+funcel.o: elem.h element.h elconcept.h elimpl.h arena.h funcimpl.h
 arena.o: elem.h element.h elconcept.h elimpl.h arena.h
 workitem.o: elem.h element.h elconcept.h elimpl.h workitem.h funcimpl.h
 main.o: elem.h element.h elconcept.h elimpl.h arena.h workitem.h logging.h
