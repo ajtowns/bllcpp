@@ -63,7 +63,7 @@ enum Func : ElBaseType {
 
     OP_X,
     OP_IF,
-    // OP_RC,
+    OP_RC,
     OP_HEAD,
     OP_TAIL,
     OP_LIST,

@@ -17,7 +17,7 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 3, Func::PARTIAL },
   { 4, Func::OP_X },
   { 5, Func::OP_IF },
-  // { 6, Func::OP_RC },
+  { 6, Func::OP_RC },
   { 7, Func::OP_HEAD },
   { 8, Func::OP_TAIL },
   { 9, Func::OP_LIST },
@@ -77,6 +77,7 @@ static func_name_array gen_func_names()
             CASE_FUNC_NAME(Func::QUOTE);
             CASE_FUNC_NAME(Func::APPLY);
             CASE_FUNC_NAME(Func::OP_X);
+            CASE_FUNC_NAME(Func::OP_RC);
             CASE_FUNC_NAME(Func::OP_HEAD);
             CASE_FUNC_NAME(Func::OP_TAIL);
             CASE_FUNC_NAME(Func::OP_LIST);
@@ -303,6 +304,31 @@ struct FixOpcode<Func::OP_SUBSTR> : FixOpcodeBase<1,3>
         if (f >= l || f >= sz || l <= 0) return arena.nil();
         if (f == 0 && l == sz) return ElRef::copy_of(str);
         return arena.New<ATOM>(arena, str_s.subspan(f, l));
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_RC>
+{
+    // state = nullptr -> finish=nil
+    // first arg replaces nullptr
+    // later args are cons(arg, state)
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        if (!state) {
+            return ElRef::copy_of(arg);
+        } else {
+            return arena.New<CONS>(ElRef::copy_of(arg), ElRef::copy_of(state));
+        }
+    }
+
+    static ElRef finish(Arena& arena, ElView state)
+    {
+        if (!state) {
+            return arena.nil();
+        } else {
+            return ElRef::copy_of(state);
+        }
     }
 };
 
