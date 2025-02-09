@@ -12,7 +12,7 @@
 
 const static std::map<uint8_t, Func::Func> bll_opcodes = {
   { 0, Func::QUOTE },
-  // { 1, Func::APPLY },
+  { 1, Func::APPLY },
   // { 2, Func::SOFTFORK },
   // { 3, Func::PARTIAL },
   { 4, Func::OP_X },
@@ -55,7 +55,7 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 41, Func::OP_TX },
   // { 42, Func::OP_BIP342_TXMSG },
 
-  // {(0xff, "===", op_bigeq), ## XXX shouldn't be an opcode?
+  // { 0xff, Func::OP_DEEP_EQUAL }, // "===", check structural equality, debug only?
 };
 
 int64_t get_opcode(Func::Func fn)
@@ -75,6 +75,7 @@ static func_name_array gen_func_names()
     for (size_t i = 0; i < res.size(); ++i) {
         switch(static_cast<Func::Func>(i)) {
             CASE_FUNC_NAME(Func::QUOTE);
+            CASE_FUNC_NAME(Func::APPLY);
             CASE_FUNC_NAME(Func::OP_X);
             CASE_FUNC_NAME(Func::OP_HEAD);
             CASE_FUNC_NAME(Func::OP_TAIL);
@@ -129,7 +130,6 @@ void ElConcept<FUNC>::step(StepParams& sp) const
 template<>
 void FuncStepV<Func::QUOTE>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
 {
-    LogTrace(BCLog::BLL, "QUOTE step\n");
     sp.wi.fin_value( sp.args.move() );
 }
 
@@ -220,6 +220,25 @@ struct FixOpcodeBase
 {
     static constexpr size_t min = MIN;
     static constexpr size_t max = MAX;
+
+    template<typename FO>
+    static void fixmacro(StepParams& sp, std::array<ElRef,MAX>& arr)
+    {
+        sp.wi.fin_value(apply_suffix(FO::fixop, arr, sp.wi.arena));
+    }
+};
+
+template<>
+struct FixOpcode<Func::APPLY> : FixOpcodeBase<1,2>
+{
+    template<typename>
+    static void fixmacro(StepParams& sp, std::array<ElRef,FixOpcodeBase::max>& arr)
+    {
+        ElRef expr = std::get<0>(arr).move();
+        ElRef env = std::get<1>(arr).move();
+        if (!env) env = sp.env.move();
+        sp.wi.new_continuation(Func::BLLEVAL, expr.move(), env.move());
+    }
 };
 
 template<>
@@ -508,8 +527,7 @@ struct FuncStep<FuncExtCount, Variant>
         // finalise
         auto arr = mkElRefArray<FO::max>();
         populate(arr, extcount.extdata, extcount.count);
-        ElRef res = apply_suffix(FO::fixop, arr, sp.wi.arena);
-        sp.wi.fin_value(res.move());
+        FO::template fixmacro<FO>(sp, arr);
     }
 };
 

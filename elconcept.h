@@ -57,7 +57,7 @@ namespace Func {
 // but don't use an enum class so that they convert directly into an int
 enum Func : ElBaseType {
     QUOTE,
-    // APPLY,
+    APPLY,
     // SOFTFORK,
     // PARTIAL,
 
@@ -98,17 +98,15 @@ enum Func : ElBaseType {
     // OP_TX,
     // OP_BIP342_TXMSG,
 
-    BLLEVAL,
+    BLLEVAL
 };
 } // namespace
 
 int64_t get_opcode(Func::Func fn);
 
 template<> struct ElConceptDef<FUNC> {
-    static constexpr ElBaseType variants{14};
+    static constexpr ElBaseType variants{Func::BLLEVAL + 1};
     static const std::array<std::string, variants> func_name;
-
-    static_assert(variants == Func::BLLEVAL + 1);
 };
 
 template<ElType Target>
