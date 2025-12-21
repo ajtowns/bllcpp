@@ -36,7 +36,7 @@ public:
     ElRef NewFunc(Func::Func fnid, T&&... args)
     {
         Elem* el = new Elem;
-        LogTrace(BCLog::BLL, "Created new FUNC %d at %p\n", fnid, el);
+        LogTrace(BCLog::BLL, "Created new Func 0x%02x at %p\n", static_cast<int>(fnid), el);
 
         el->set_type(ConceptOffset<FUNC>() + fnid);
         new(&el->data_rw<uint8_t>()) ED{std::forward<decltype(args)>(args)...};

@@ -11,7 +11,7 @@ template<typename... Args>
 void LogTrace(BCLog cat, util::ConstevalFormatString<sizeof...(Args)> fmt, Args&&... args)
 {
     (void)cat;
-    std::cerr << tfm::format(fmt, args...);
+    std::cerr << strprintf(fmt, std::forward<Args>(args)...);
 }
 
 #endif
