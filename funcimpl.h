@@ -76,6 +76,8 @@ template<> struct ElVariant<FUNC,Func::OP_LT_STR> { using ElData = FuncExt; };
 template<> struct ElVariant<FUNC,Func::OP_STRLEN> { using ElData = FuncExtNil; };
 template<> struct ElVariant<FUNC,Func::OP_CAT> { using ElData = FuncExtNil; };
 
+template<> struct ElVariant<FUNC,Func::OP_ADD> { using ElData = FuncExt; };
+
 template<> struct ElVariant<FUNC,Func::BLLEVAL> { using ElData = FuncNone; };
 
 #if 0

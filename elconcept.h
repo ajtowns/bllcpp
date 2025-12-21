@@ -80,7 +80,7 @@ enum Func : ElBaseType {
     // OP_AND_BYTES,
     // OP_OR_BYTES,
     // OP_XOR_BYTES,
-    // OP_ADD,
+    OP_ADD,
     // OP_SUB,
     // OP_MUL,
     // OP_MOD,

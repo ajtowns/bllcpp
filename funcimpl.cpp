@@ -34,7 +34,7 @@ const static std::map<uint8_t, Func::Func> bll_opcodes = {
   // { 20, Func::OP_AND_BYTES },
   // { 21, Func::OP_OR_BYTES },
   // { 22, Func::OP_XOR_BYTES },
-  // { 23, Func::OP_ADD },
+  { 23, Func::OP_ADD },
   // { 24, Func::OP_SUB },
   // { 25, Func::OP_MUL },
   // { 26, Func::OP_MOD },
@@ -89,6 +89,7 @@ static func_name_array gen_func_names()
             CASE_FUNC_NAME(Func::OP_STRLEN);
             CASE_FUNC_NAME(Func::OP_SUBSTR);
             CASE_FUNC_NAME(Func::OP_CAT);
+            CASE_FUNC_NAME(Func::OP_ADD);
             CASE_FUNC_NAME(Func::BLLEVAL);
         }
     }
@@ -344,6 +345,47 @@ struct BinOpcode<Func::OP_NOTALL>
         } else {
             return ElRef::copy_of(state);
         }
+    }
+
+    static ElRef finish(Arena& arena, ElView state)
+    {
+        if (!state) {
+            return arena.nil();
+        } else {
+            return ElRef::copy_of(state);
+        }
+    }
+};
+
+template<>
+struct BinOpcode<Func::OP_ADD>
+{
+    // state = nullptr at start; false
+    // any nil => state = one()
+    static ElRef binop(Arena& arena, ElView state, ElView arg)
+    {
+        int64_t s{0};
+
+        if (state) {
+            if (auto st_a = state.get<ATOM>(); st_a) {
+                auto os = st_a->small_int();
+                if (!os) return arena.error(); // should be impossible
+                s = *os;
+            } else {
+                return arena.error();
+            }
+        }
+
+        if (auto arg_a = arg.get<ATOM>(); arg_a) {
+            auto a = arg_a->small_int();
+            if (!a) return arena.error();
+            if ((*a >= 0 && std::numeric_limits<int64_t>::max() - *a >= s)
+                || (*a < 0 && std::numeric_limits<int64_t>::min() - *a >= s))
+            {
+                return arena.New<ATOM>(s + *a);
+            }
+        }
+        return arena.error();
     }
 
     static ElRef finish(Arena& arena, ElView state)
