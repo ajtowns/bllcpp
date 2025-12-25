@@ -7,8 +7,8 @@
 #include <attributes.h>
 
 #include <limits>
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 
 using ElBaseType = uint8_t;
 

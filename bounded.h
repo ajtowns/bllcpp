@@ -3,8 +3,8 @@
 
 #include <elem.h>
 
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 

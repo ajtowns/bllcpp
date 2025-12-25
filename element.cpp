@@ -6,8 +6,8 @@
 #include <logging.h>
 
 #include <cstring>
-#include <stddef.h>
-#include <stdint.h>
+#include <cstddef>
+#include <cstdint>
 #include <limits>
 #include <memory>
 
