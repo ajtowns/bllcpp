@@ -169,4 +169,18 @@ ElConcept<ATOM> ElConcept<ATOM>::init_as(Elem& el, Span<const uint8_t> data, ATO
 }
 
 ElConcept<CONS> ElConcept<CONS>::init_as(Elem& el, ElRef&& left, ElRef&& right) { return init_as_helper<CONS,0>(el, std::move(left), std::move(right)); }
-ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el) { return init_as_helper<ERROR,0>(el); }
+
+ElConcept<ERROR> ElConcept<ERROR>::init_as(Elem& el, ElConcept<ERROR>::sourceloc sloc)
+{
+    return init_as_helper<ERROR,0>(el, sloc.filename, sloc.line);
+}
+
+ElConcept<ERROR>::sourceloc ElConcept<ERROR>::source_location() const
+{
+    sourceloc sloc;
+    ElVariantHelper<ERROR>::visit(*this, [&](const ElData<ERROR,0>& eldata) {
+        sloc.filename = eldata.filename;
+        sloc.line = eldata.line;
+    });
+    return sloc;
+}

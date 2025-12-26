@@ -9,6 +9,7 @@
 
 #include <array>
 #include <optional>
+#include <source_location>
 #include <vector>
 
 class Arena
@@ -46,7 +47,7 @@ public:
 
     ElRef nil() { return m_nil.copy(); }
     ElRef one() { return m_one.copy(); }
-    ElRef error();
+    ElRef error(std::source_location sloc = std::source_location::current());
 
     ElRef mkbool(bool b) { return b ? one() : nil(); }
 

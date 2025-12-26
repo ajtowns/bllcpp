@@ -22,7 +22,7 @@ void test1(Arena& arena)
         LogTrace(BCLog::BLL, "Soon\n");
         yo.reset();
         LogTrace(BCLog::BLL, "Next\n");
-        x = arena.New<CONS>(arena.mklist(1,2,arena.mklist(3,arena.mkfn(Func::BLLEVAL),3,trouble.move()),4,5, arena.New<ERROR>()), lucky.move());
+        x = arena.New<CONS>(arena.mklist(1,2,arena.mklist(3,arena.mkfn(Func::BLLEVAL),3,trouble.move()),4,5, arena.error()), lucky.move());
     }
     std::cout << x.to_string() << std::endl;
     LogTrace(BCLog::BLL, "Goodbye\n");
@@ -92,6 +92,14 @@ void test7(Arena& arena)
     run(wi);
 }
 
+void test8(Arena& arena)
+{
+    std::cout << "test 6" << std::endl;
+    auto q = [&](auto e) { return arena.New<CONS>(arena.nil(), arena.mkel(e)); };
+    WorkItem wi(arena, arena.mklist(Func::OP_CAT, q(1), arena.mklist(arena.nil(), 1, 2, 3), q(100000)), arena.nil());
+    run(wi);
+}
+
 int main(void)
 {
     Arena arena;
@@ -102,5 +110,6 @@ int main(void)
     test5(arena);
     test6(arena);
     test7(arena);
+    test8(arena);
     return 0;
 }

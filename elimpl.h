@@ -87,7 +87,10 @@ template<> struct ElVariant<CONS,0>
 
 template<> struct ElVariant<ERROR,0>
 {
-    struct ElData { }; // filename and line number?
+    struct ElData {
+        const char* filename;
+        uint32_t line;
+    };
 };
 
 #endif // ELIMPL_H

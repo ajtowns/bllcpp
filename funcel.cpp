@@ -85,7 +85,10 @@ std::string ElRefViewHelper::to_string(ElView ev, bool in_list)
             res = strprintf("%s%s%s", (in_list ? " " : "("), to_string(c.left()), to_string(c.right(), /*in_list=*/true));
             in_list = false;
         },
-        [&](ElConcept<ERROR>) { res = "ERROR"; },
+        [&](ElConcept<ERROR> e) {
+            auto sloc = e.source_location();
+            res = strprintf("ERROR(%s:%d)", sloc.filename, sloc.line);
+        },
         [&](ElConcept<FUNC> fn) {
             std::string extra = "";
             ElVariantHelper<FUNC>::visit(fn, util::Overloaded(

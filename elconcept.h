@@ -194,7 +194,14 @@ public:
     // parent's constructor
     using ElConceptBase<ERROR>::ElConceptBase;
 
-    static ElConcept<ERROR> init_as(Elem& el);
+    struct sourceloc {
+        const char* filename;
+        uint32_t line;
+    };
+
+    static ElConcept<ERROR> init_as(Elem& el, sourceloc sloc);
+
+    sourceloc source_location() const;
 
     void dealloc(ElRef&, ElRef&) { };
 };

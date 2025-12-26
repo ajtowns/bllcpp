@@ -16,7 +16,8 @@ ElRef Arena::mkel(int64_t v)
     return New<ATOM>(v);
 }
 
-ElRef Arena::error()
+ElRef Arena::error(std::source_location sloc)
 {
-    return New<ERROR>();
+    int64_t line = std::min<int64_t>(std::max<int64_t>(sloc.line(), 0), std::numeric_limits<uint32_t>::max());
+    return New<ERROR>(ElConcept<ERROR>::sourceloc{sloc.file_name(), static_cast<uint32_t>(line)});
 }
