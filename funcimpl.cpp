@@ -380,7 +380,7 @@ struct BinOpcode<Func::OP_ADD>
             auto a = arg_a->small_int();
             if (!a) return arena.error();
             if ((*a >= 0 && std::numeric_limits<int64_t>::max() - *a >= s)
-                || (*a < 0 && std::numeric_limits<int64_t>::min() - *a >= s))
+                || (*a < 0 && std::numeric_limits<int64_t>::min() - *a <= s))
             {
                 return arena.New<ATOM>(s + *a);
             }
@@ -394,6 +394,18 @@ struct BinOpcode<Func::OP_ADD>
             return arena.nil();
         } else {
             return ElRef::copy_of(state);
+        }
+    }
+
+    int64_t xdefault_state() { return 0; }
+    static ElRef xbinop(Arena& arena, int64_t state, int64_t arg)
+    {
+        if ((arg >= 0 && std::numeric_limits<int64_t>::max() - arg >= state)
+            || (arg < 0 && std::numeric_limits<int64_t>::min() - arg <= state))
+        {
+            return arena.New<ATOM>(state + arg);
+        } else {
+            return arena.error();
         }
     }
 };

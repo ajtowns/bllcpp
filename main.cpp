@@ -88,7 +88,7 @@ void test6(Arena& arena)
 void test7(Arena& arena)
 {
     auto q = [&](auto e) { return arena.New<CONS>(arena.nil(), arena.mkel(e)); };
-    WorkItem wi(arena, arena.mklist(Func::OP_ADD, q(1), q(2), q(3), q(4), q(5), q(6)), arena.nil());
+    WorkItem wi(arena, arena.mklist(Func::OP_ADD, q(1), q(2), q(3), q(4), q(5), q(6), q(-7)), arena.nil());
     run(wi);
 }
 
