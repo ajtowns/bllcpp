@@ -4,4 +4,4 @@ arena.o: elem.h element.h elconcept.h elimpl.h arena.h
 workitem.o: elem.h element.h elconcept.h elimpl.h workitem.h funcimpl.h arena.h
 main.o: elem.h element.h elconcept.h elimpl.h arena.h workitem.h logging.h
 funcimpl.o: elem.h element.h elconcept.h elimpl.h workitem.h funcimpl.h
-
+buddy.o: buddy.h
