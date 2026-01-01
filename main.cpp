@@ -1,3 +1,4 @@
+#include <buddy.h>
 #include <element.h>
 #include <workitem.h>
 #include <elconcept.h>
@@ -102,6 +103,7 @@ void test8(Arena& arena)
 
 int main(void)
 {
+  {
     Arena arena;
     test1(arena);
     test2(arena);
@@ -111,5 +113,19 @@ int main(void)
     test6(arena);
     test7(arena);
     test8(arena);
+
+    std::cout << "======================" << std::endl;
+  }
+    Buddy::Allocator alloc;
+    alloc.DumpChunks();
+
+    Buddy::Ref r[] = {
+        alloc.allocate(Buddy::Tag::CONS, 16),
+        alloc.allocate(Buddy::Tag::INPLACE_ATOM, 16),
+        alloc.allocate(Buddy::Tag::INPLACE_ATOM, 16),
+        alloc.allocate(Buddy::Tag::INPLACE_ATOM, 64),
+        alloc.allocate(Buddy::Tag::CONS, 16),
+    };
+
     return 0;
 }

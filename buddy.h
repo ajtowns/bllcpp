@@ -2,6 +2,7 @@
 #define BUDDY_H
 
 #include <overloaded.h>
+#include <tinyformat.h>
 
 #include <array>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <optional>
 #include <span>
 #include <vector>
+#include <iostream>
 
 namespace Buddy {
 
@@ -40,6 +42,7 @@ struct Shift16
     }
 
     Shift16& operator++() { ++sh; return *this; }
+    Shift16& operator--() { --sh; return *this; }
     friend bool operator==(const Shift16& l, const Shift16& r)
     {
         return l.sh == r.sh;
@@ -52,7 +55,7 @@ struct Shift16
 
     Shift16& set(uint8_t _sh) { sh = _sh; return *this; }
     constexpr size_t byte_size() const { return 16 << sh; }
-    constexpr uint8_t chunk_size() const { return 1 << sh; }
+    constexpr size_t chunk_size() const { return 1 << sh; }
 };
 
 struct AllocShift16 : public Shift16
@@ -75,7 +78,8 @@ enum class Tag : uint8_t
     FUNC_COUNT   = 7,
     FUNC_EXT     = 8,
 };
-std::optional<Tag> GetTag(uint8_t t, Shift16 sz)
+
+inline std::optional<Tag> GetTag(uint8_t t, Shift16 sz)
 {
     if (t > static_cast<uint8_t>(Tag::FUNC_EXT)) return std::nullopt;
     if (sz.sh > 0 && t > static_cast<uint8_t>(Tag::INPLACE_ATOM)) return std::nullopt;
@@ -301,7 +305,7 @@ struct Ref {
         return l.block == r.block && l.chunk == r.chunk;
     }
 };
-static constexpr Ref NULLREF{{.block=0xFFFF, .chunk=0xFFFF}};
+inline constexpr Ref NULLREF{{.block=0xFFFF, .chunk=0xFFFF}};
 
 class Allocator
 {
@@ -335,7 +339,7 @@ private:
     static_assert(sizeof(Block) == BLOCK_SIZE);
 
     std::vector<std::unique_ptr<Block>> m_blocks;
-    std::array<Ref, BLOCK_EXP.sh> m_free;
+    std::array<Ref, BLOCK_EXP.sh + 1> m_free;
 
     Chunk* GetChunk(Ref ref) { return &(m_blocks[ref.block]->chunk[ref.chunk]); }
 
@@ -347,8 +351,6 @@ private:
     }
 
     void MakeFree(Ref ref, Shift16 sz);
-    void NewBlock();
-    void FreeHalfChunk(Ref ref, Shift16 sz);
 
     // combines buddies; but does not recursively deref
     void deallocate(Ref&& ref);
@@ -365,6 +367,22 @@ public:
     Allocator()
     {
         for (Ref& ref : m_free) ref = NULLREF;
+    }
+
+    void DumpChunks()
+    {
+        std::cout << "Blocks: " << m_blocks.size() << std::endl;
+        for (uint16_t i = 0; i < m_blocks.size(); ++i) {
+            std::cout << i << ":";
+            uint16_t c = 0;
+            while (c < CHUNK_COUNT) {
+                Chunk* chunk = GetChunk({{.block=i, .chunk=c}});
+                TagInfo tag{chunk->data[0]};
+                std::cout << strprintf(" %s%d", (tag.free ? "_" : "*"), tag.size.byte_size());
+                c += tag.size.chunk_size();
+            }
+            std::cout << std::endl;
+        }
     }
 
     Ref from_shortref(Uint24 ref3)

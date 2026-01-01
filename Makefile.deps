@@ -2,6 +2,6 @@ element.o: elem.h element.h elconcept.h elimpl.h arena.h
 funcel.o: elem.h element.h elconcept.h elimpl.h arena.h funcimpl.h
 arena.o: elem.h element.h elconcept.h elimpl.h arena.h
 workitem.o: elem.h element.h elconcept.h elimpl.h workitem.h funcimpl.h arena.h
-main.o: elem.h element.h elconcept.h elimpl.h arena.h workitem.h logging.h
+main.o: elem.h element.h elconcept.h elimpl.h arena.h workitem.h logging.h buddy.h
 funcimpl.o: elem.h element.h elconcept.h elimpl.h workitem.h funcimpl.h
 buddy.o: buddy.h

@@ -22,7 +22,7 @@ Ref Allocator::TakeFree(Ref ref)
 void Allocator::MakeFree(Ref ref, Shift16 sz)
 {
     Chunk* chunk = GetChunk(ref);
-    chunk->info.tag = sz.sh;
+    chunk->info.tag = TagInfo::Free(sz).tagbyte();
     Ref next = m_free[sz.sh];
     if (next == NULLREF) {
         chunk->info.prev = chunk->info.next = ref;
@@ -38,44 +38,33 @@ void Allocator::MakeFree(Ref ref, Shift16 sz)
     m_free[sz.sh] = ref;
 }
 
-void Allocator::NewBlock()
-{
-    uint16_t block = m_blocks.size();
-    m_blocks.emplace_back(std::make_unique<Block>());
-    FreeHalfChunk({{.block=block, .chunk=0}}, BLOCK_EXP);
-}
-
-void Allocator::FreeHalfChunk(Ref r, Shift16 sz)
-{
-    assert(sz.sh > 0 && sz.sh <= m_free.size());
-    Ref other{{.block=r.block, .chunk=static_cast<uint16_t>(r.chunk + (1<<(sz.sh-1)))}};
-    MakeFree(other, sz - 1);
-}
-
 Ref Allocator::allocate(Tag tag, AllocShift16 sz)
 {
+    DumpChunks();
     size_t best_free = sz.sh;
     while (best_free < m_free.size() && m_free[best_free] == NULLREF) {
         ++best_free;
     }
     Ref blk;
     if (best_free == m_free.size()) {
+        static_assert(std::tuple_size_v<decltype(m_free)> == BLOCK_EXP.sh + 1);
         blk.block = m_blocks.size();
         blk.chunk = 0;
         m_blocks.emplace_back(std::make_unique<Block>());
         MakeFree(blk, BLOCK_EXP);
         --best_free;
-    } else {
-        blk = m_free[best_free];
-        m_free[best_free] = TakeFree(blk);
     }
-    while (best_free > sz.sh) {
-        MakeFree(blk, Shift16::FromInt(best_free));
-        --best_free;
+    blk = m_free[best_free];
+    m_free[best_free] = TakeFree(blk);
+    Shift16 blk_sz = Shift16::FromInt(best_free);
+
+    while (blk_sz.sh > sz.sh) {
+        --blk_sz;
+        MakeFree(GetBuddy(blk, blk_sz), blk_sz);
     }
 
     GetChunk(blk)->data[0] = TagInfo::Allocated(tag, sz).tagbyte();
-
+    DumpChunks();
     return blk;
 }
 
