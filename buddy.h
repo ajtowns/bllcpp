@@ -7,14 +7,20 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <optional>
+#include <source_location>
 #include <span>
 #include <vector>
-#include <iostream>
 
 namespace Buddy {
+
+static constexpr size_t BLOCK_SIZE{256*1024};
+static constexpr uint16_t CHUNK_COUNT{BLOCK_SIZE / 16};
+
+static_assert(((BLOCK_SIZE-1) & BLOCK_SIZE) == 0, "must be power of 2");
 
 struct Shift16
 {
@@ -92,7 +98,7 @@ struct TagInfo {
     std::optional<Tag> tag{std::nullopt};
 
     TagInfo() = default;
-    TagInfo(uint8_t b)
+    constexpr TagInfo(uint8_t b)
     {
         if ((b & 0x80) != 0) {
             free = true;
@@ -131,6 +137,8 @@ class Uint24
 {
 private:
     std::array<uint8_t, 3> val{0,0,0};
+
+    static constexpr uint8_t by(uint32_t v, size_t n) { return static_cast<uint8_t>((v >> (8*n)) & 0xFF); }
 public:
     Uint24() = default;
     explicit constexpr Uint24(std::span<const uint8_t> s)
@@ -139,21 +147,82 @@ public:
             val[0] = s[0]; val[1] = s[1]; val[2] = s[2];
         }
     }
-    explicit constexpr Uint24(uint32_t v)
-    {
-        write(v);
-    }
+    constexpr Uint24(uint32_t v) : val{by(v,0), by(v,1), by(v,2)} { }
 
     constexpr uint32_t read() const { return val[0] + (val[1] << 8) + (val[1] << 16); }
 
     void write(uint32_t v)
     {
-        val[0] = v & 0xFF;
-        val[1] = (v >> 8) & 0xFF;
-        val[2] = (v >> 16) & 0xFF;
+        val[0] = by(v,0);
+        val[1] = by(v,1);
+        val[2] = by(v,2);
     }
 };
 static_assert(sizeof(Uint24) == 3 && alignof(Uint24) == 1);
+
+class Ref {
+private:
+    friend class Allocator;
+    friend class ShortRef;
+
+    uint16_t block;
+    uint16_t chunk;
+
+public:
+    Ref() = delete; // explicitly initialize as NULLREF instead
+
+    struct Bare { uint16_t block, chunk; };
+
+    constexpr Ref(Bare b) : block{b.block}, chunk{b.chunk} { }
+    constexpr Ref(const Ref&) = default;
+    constexpr Ref(Ref&& other) : block{other.block}, chunk{other.chunk}
+    {
+        other.block = other.chunk = 0xFFFF;
+    }
+
+    constexpr bool is_null() const { return block == 0xFFFF && chunk == 0xFFFF; }
+
+    Ref& operator=(const Ref&) = default;
+    Ref& operator=(Ref&& o)
+    {
+        *this = o;
+        o.block = o.chunk = 0xFFFF;
+        return *this;
+    }
+
+    friend constexpr bool operator==(const Ref& l, const Ref& r)
+    {
+        return l.block == r.block && l.chunk == r.chunk;
+    }
+};
+inline constexpr Ref NULLREF{{.block=0xFFFF, .chunk=0xFFFF}};
+
+class ShortRef
+{
+private:
+    Uint24 m_value;
+
+    static_assert( (1ul<<24)/CHUNK_COUNT <= std::numeric_limits<uint16_t>::max() );
+    static_assert( CHUNK_COUNT <= std::numeric_limits<uint16_t>::max() );
+
+public:
+    constexpr ShortRef(const Ref& ref) : m_value{static_cast<uint32_t>(ref.is_null() ? 0xFFFFFF : ref.block * CHUNK_COUNT + ref.chunk)} { }
+
+    constexpr operator Ref() const
+    {
+        Ref res{NULLREF};
+        uint32_t v = m_value.read();
+        if (v != 0xFFFFFF) {
+            res.block = static_cast<uint16_t>(v / CHUNK_COUNT);
+            res.chunk = static_cast<uint16_t>(v % CHUNK_COUNT);
+        }
+        return res;
+    }
+
+    constexpr uint32_t get_value() const { return m_value.read(); }
+};
+static_assert(ShortRef{NULLREF} == NULLREF);
+static_assert(ShortRef{NULLREF}.get_value() == 0xFFFFFF);
 
 enum class Func : uint16_t;
 enum class FuncCount : uint16_t;
@@ -165,7 +234,7 @@ struct TagView;
 struct TagRefCount
 {
     uint8_t tag;
-    mutable Uint24 refcount;
+    mutable Uint24 refcount{uint32_t{1}};
 };
 static_assert(sizeof(TagRefCount) == 4);
 
@@ -187,6 +256,14 @@ struct alignas(16) TagView<Tag::INPLACE_ATOM, SIZE> : public TagRefCount
     std::array<uint8_t, SIZE-5> data;
     std::span<uint8_t> span() { return std::span(data).subspan(0, size); }
     std::span<const uint8_t> span() const { return std::span(data).subspan(0, size); }
+
+    TagView<Tag::INPLACE_ATOM, SIZE>(std::span<const uint8_t> sp)
+    {
+        if (sp.size() > SIZE - 5) sp = sp.subspan(0, SIZE-5);
+        size = sp.size();
+        std::copy(sp.begin(), sp.end(), data.begin());
+    }
+    TagView<Tag::INPLACE_ATOM, SIZE>(std::span<const char> sp) : TagView<Tag::INPLACE_ATOM, SIZE>(MakeUCharSpan(sp)) { }
 };
 static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 16>) == 16);
 static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 32>) == 32);
@@ -214,8 +291,8 @@ static_assert(sizeof(TagView<Tag::EXT_ATOM, 16>) == 16);
 template<>
 struct TagView<Tag::CONS, 16> : public TagRefCount
 {
-    Uint24 left;
-    Uint24 right;
+    ShortRef left;
+    ShortRef right;
     std::array<uint8_t,6> padding{0};
 };
 static_assert(sizeof(TagView<Tag::CONS, 16>) == 16);
@@ -232,8 +309,8 @@ template<>
 struct TagView<Tag::FUNC, 16> : public TagRefCount
 {
     Func funcid;
-    Uint24 env;
-    Uint24 state;
+    ShortRef env;
+    ShortRef state;
     std::array<uint8_t, 4> extra_state;
 };
 static_assert(sizeof(TagView<Tag::FUNC, 16>) == 16);
@@ -242,8 +319,8 @@ template<>
 struct TagView<Tag::FUNC_COUNT, 16> : public TagRefCount
 {
     FuncCount funcid;
-    Uint24 env;
-    Uint24 state;
+    ShortRef env;
+    ShortRef state;
     uint32_t counter;
 };
 static_assert(sizeof(TagView<Tag::FUNC_COUNT, 16>) == 16);
@@ -252,7 +329,7 @@ template<>
 struct TagView<Tag::FUNC_EXT, 16> : public TagRefCount
 {
     FuncExt funcid;
-    Uint24 env;
+    ShortRef env;
     const void* state;
 };
 static_assert(sizeof(TagView<Tag::FUNC_EXT, 16>) == 16);
@@ -275,38 +352,6 @@ concept TagViewCallable =
     std::invocable<Fn, TagView<Tag::FUNC_COUNT, 16>&> &&
     std::invocable<Fn, TagView<Tag::FUNC_EXT, 16>&>;
 
-struct Ref {
-    uint16_t block;
-    uint16_t chunk;
-
-    struct Bare { uint16_t block, chunk; };
-
-    constexpr Ref() = default;
-    constexpr Ref(Bare b) : block{b.block}, chunk{b.chunk} { }
-    constexpr Ref(const Ref&) = default;
-
-    bool is_null() const { return block == 0xFFFF && chunk == 0xFFFF; }
-
-    Ref& operator=(const Ref&) = default;
-    Ref& operator=(Ref&& o)
-    {
-        *this = o;
-        o.block = o.chunk = 0xFFFF;
-        return *this;
-    }
-
-    Ref(Ref&& other) : block{other.block}, chunk{other.chunk}
-    {
-        other.block = other.chunk = 0xFFFF;
-    }
-
-    friend bool operator==(const Ref& l, const Ref& r)
-    {
-        return l.block == r.block && l.chunk == r.chunk;
-    }
-};
-inline constexpr Ref NULLREF{{.block=0xFFFF, .chunk=0xFFFF}};
-
 class Allocator
 {
 private:
@@ -315,12 +360,18 @@ private:
         Ref prev;
         Ref next;
     };
-    union alignas(16) Chunk {
+    static_assert(sizeof(Info) <= 16);
+    static_assert(alignof(Info) <= 16);
+
+    struct alignas(16) Chunk {
         std::array<uint8_t, 16> data;
-        Info info;
+
+        Info& info() { return *reinterpret_cast<Info*>(&data); }
+
+        constexpr TagInfo taginfo() const { return TagInfo{data[0]}; }
     };
     static_assert(sizeof(Chunk) == 16);
-    static_assert(offsetof(Chunk, data) == offsetof(Chunk, info.tag));
+    static_assert(offsetof(Chunk, data) == offsetof(Info, tag));
 
     template<Tag TAG, uint8_t SIZE>
     TagView<TAG, SIZE>* TagViewAt(Chunk* chunk)
@@ -328,9 +379,7 @@ private:
         return reinterpret_cast<TagView<TAG,SIZE>*>(chunk);
     };
 
-    static constexpr size_t BLOCK_SIZE{256*1024};
     static constexpr Shift16 BLOCK_EXP{BLOCK_SIZE};
-    static constexpr uint16_t CHUNK_COUNT{BLOCK_SIZE / sizeof(Chunk)};
 
     struct Block { alignas(128) std::array<Chunk, CHUNK_COUNT> chunk; };
 
@@ -339,7 +388,19 @@ private:
     static_assert(sizeof(Block) == BLOCK_SIZE);
 
     std::vector<std::unique_ptr<Block>> m_blocks;
-    std::array<Ref, BLOCK_EXP.sh + 1> m_free;
+
+    template<std::size_t N>
+    constexpr static std::array<Ref, N> make_ref_array()
+    {
+        // The lambda (or function) returns a T constructed from args, repeated N times
+        auto make_element = [&](auto) -> Ref { return NULLREF; };
+
+        return [&]<std::size_t... I>(std::index_sequence<I...>) {
+            return std::array<Ref, N>{ make_element(I)... };
+        }(std::make_index_sequence<N>{});
+    }
+
+    std::array<Ref, BLOCK_EXP.sh + 1> m_free{make_ref_array<BLOCK_EXP.sh + 1>()};
 
     Chunk* GetChunk(Ref ref) { return &(m_blocks[ref.block]->chunk[ref.chunk]); }
 
@@ -352,6 +413,8 @@ private:
 
     void MakeFree(Ref ref, Shift16 sz);
 
+    // allocates, without tagging
+    Ref allocate(AllocShift16 sz);
     // combines buddies; but does not recursively deref
     void deallocate(Ref&& ref);
 
@@ -364,51 +427,76 @@ private:
     }
 
 public:
-    Allocator()
-    {
-        for (Ref& ref : m_free) ref = NULLREF;
-    }
+    Allocator() = default;
 
-    void DumpChunks()
+    void DumpChunks(std::source_location sloc=std::source_location::current())
     {
-        std::cout << "Blocks: " << m_blocks.size() << std::endl;
-        for (uint16_t i = 0; i < m_blocks.size(); ++i) {
-            std::cout << i << ":";
-            uint16_t c = 0;
-            while (c < CHUNK_COUNT) {
-                Chunk* chunk = GetChunk({{.block=i, .chunk=c}});
-                TagInfo tag{chunk->data[0]};
-                std::cout << strprintf(" %s%d", (tag.free ? "_" : "*"), tag.size.byte_size());
-                c += tag.size.chunk_size();
+        std::cout << strprintf("%s:%d - Blocks: %d", sloc.file_name(), sloc.line(), m_blocks.size()) << std::endl;
+        Ref ref{NULLREF};
+        for (ref.block = 0; ref.block < m_blocks.size(); ++ref.block) {
+            std::cout << ref.block << ":";
+            ref.chunk = 0;
+            while (ref.chunk < CHUNK_COUNT) {
+                Chunk* chunk = GetChunk(ref);
+                auto tag = chunk->taginfo();
+                std::cout << strprintf(" %d%s%d", refs(ref), (tag.free ? "_" : "*"), tag.size.byte_size());
+                ref.chunk += tag.size.chunk_size();
             }
             std::cout << std::endl;
         }
     }
 
-    Ref from_shortref(Uint24 ref3)
+    template<Tag TAG, size_t SIZE, typename... T>
+    Ref create(TagView<TAG,SIZE> tv)
     {
-        static_assert( (1ul<<24)/CHUNK_COUNT <= std::numeric_limits<uint16_t>::max() );
-        static_assert( CHUNK_COUNT <= std::numeric_limits<uint16_t>::max() );
-        uint32_t v = ref3.read();
-        return {{.block = static_cast<uint16_t>(v/CHUNK_COUNT), .chunk = static_cast<uint16_t>(v%CHUNK_COUNT)}};
-    }
-    Uint24 to_shortref(Ref ref)
-    {
-        return Uint24{static_cast<uint32_t>(ref.block * CHUNK_COUNT + ref.chunk)};
+        Ref r{allocate(SIZE)};
+        set_at(r, std::move(tv));
+        return r;
     }
 
-    Ref allocate(Tag tag, AllocShift16 sz);
+    template<Tag TAG, size_t SIZE, typename... T>
+    Ref create(T&&... args)
+    {
+        Ref r{allocate(SIZE)};
+        set_at(r, TagView<TAG,SIZE>(args...));
+        return r;
+    }
+
+    Ref bumpref(Ref& ref)
+    {
+        Ref res{NULLREF};
+        dispatch(ref, util::Overloaded(
+            [&]<size_t SIZE>(const TagView<Tag::NOREFCOUNT,SIZE>&) { },
+            [&](const TagRefCount& trc) {
+                auto rc = trc.refcount.read();
+                trc.refcount.write(rc + 1);
+                res = ref;
+            }
+        ));
+        return res;
+    }
+
     void deref(Ref&& ref);
 
     std::tuple<std::optional<Tag>, std::span<uint8_t>, Shift16> lookup(Ref ref)
     {
         Chunk* chunk = GetChunk(ref);
-        TagInfo tag{chunk->data[0]};
+        auto tag = chunk->taginfo();
         if (tag.free) {
             return {std::nullopt, {}, {}};
         } else {
             return {tag.tag, std::span<uint8_t>{&chunk->data[0], tag.size.byte_size()}.subspan(1), tag.size};
         }
+    }
+
+    size_t refs(Ref ref)
+    {
+        size_t res{0};
+        dispatch(ref, util::Overloaded(
+            [&]<size_t SIZE>(const TagView<Tag::NOREFCOUNT,SIZE>&) { res = 1; },
+            [&](const TagRefCount& trc) { res = trc.refcount.read(); }
+        ));
+        return res;
     }
 
     template<TagViewCallable Fn>
@@ -417,7 +505,7 @@ public:
         using enum Tag;
 
         Chunk* chunk = GetChunk(ref);
-        TagInfo tag{chunk->data[0]};
+        auto tag = chunk->taginfo();
         if (tag.free || !tag.tag) return;
         switch(*tag.tag) {
         case NOREFCOUNT:
@@ -453,7 +541,7 @@ public:
 class AtomRef
 {
 private:
-    Ref ref;
+    Ref ref{NULLREF};
     std::span<const uint8_t> atom;
 
     AtomRef() = default;

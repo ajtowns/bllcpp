@@ -9,12 +9,12 @@ Ref Allocator::TakeFree(Ref ref)
 {
     Ref result = NULLREF;
     Chunk* chunk = GetChunk(ref);
-    if (chunk->info.next != ref) {
-        Chunk* next = GetChunk(chunk->info.next);
-        Chunk* prev = GetChunk(chunk->info.prev);
-        next->info.prev = chunk->info.prev;
-        prev->info.next = chunk->info.next;
-        result = prev->info.next;
+    if (chunk->info().next != ref) {
+        Chunk* next = GetChunk(chunk->info().next);
+        Chunk* prev = GetChunk(chunk->info().prev);
+        next->info().prev = chunk->info().prev;
+        prev->info().next = chunk->info().next;
+        result = prev->info().next;
     }
     return result;
 }
@@ -22,30 +22,30 @@ Ref Allocator::TakeFree(Ref ref)
 void Allocator::MakeFree(Ref ref, Shift16 sz)
 {
     Chunk* chunk = GetChunk(ref);
-    chunk->info.tag = TagInfo::Free(sz).tagbyte();
+    chunk->info().tag = TagInfo::Free(sz).tagbyte();
     Ref next = m_free[sz.sh];
     if (next == NULLREF) {
-        chunk->info.prev = chunk->info.next = ref;
+        chunk->info().prev = chunk->info().next = ref;
     } else {
         Chunk* chunknext = GetChunk(next);
-        Chunk* chunkprev = GetChunk(chunknext->info.prev);
-        chunk->info.prev = chunknext->info.prev;
-        chunknext->info.prev = ref;
-        chunkprev->info.next = ref;
-        chunk->info.next = next;
-        chunk->info.tag = TagInfo::Free(sz).tagbyte();
+        Chunk* chunkprev = GetChunk(chunknext->info().prev);
+        chunk->info().prev = chunknext->info().prev;
+        chunknext->info().prev = ref;
+        chunkprev->info().next = ref;
+        chunk->info().next = next;
+        chunk->info().tag = TagInfo::Free(sz).tagbyte();
     }
     m_free[sz.sh] = ref;
 }
 
-Ref Allocator::allocate(Tag tag, AllocShift16 sz)
+Ref Allocator::allocate(AllocShift16 sz)
 {
     DumpChunks();
     size_t best_free = sz.sh;
     while (best_free < m_free.size() && m_free[best_free] == NULLREF) {
         ++best_free;
     }
-    Ref blk;
+    Ref blk{NULLREF};
     if (best_free == m_free.size()) {
         static_assert(std::tuple_size_v<decltype(m_free)> == BLOCK_EXP.sh + 1);
         blk.block = m_blocks.size();
@@ -62,9 +62,6 @@ Ref Allocator::allocate(Tag tag, AllocShift16 sz)
         --blk_sz;
         MakeFree(GetBuddy(blk, blk_sz), blk_sz);
     }
-
-    GetChunk(blk)->data[0] = TagInfo::Allocated(tag, sz).tagbyte();
-    DumpChunks();
     return blk;
 }
 
@@ -76,7 +73,7 @@ void Allocator::deallocate(Ref&& ref)
     while (sz.sh < 3) {
         Ref buddy = GetBuddy(r, sz);
         Chunk* chunk = GetChunk(buddy);
-        TagInfo buddytag{chunk->info.tag};
+        TagInfo buddytag{chunk->taginfo()};
         if (buddytag.free && buddytag.size == sz) {
             Ref buddynext = TakeFree(buddy);
             if (m_free[sz.sh] == buddy) m_free[sz.sh] = buddynext;
@@ -92,7 +89,7 @@ void Allocator::deallocate(Ref&& ref)
 void Allocator::deref(Ref&& ref)
 {
     Ref work{ref};
-    Ref todo{};
+    Ref todo{NULLREF};
 
     auto has_other_refs = [&](Ref r) -> bool {
         bool other_refs{true};
@@ -107,7 +104,7 @@ void Allocator::deref(Ref&& ref)
                 }
             }
         ));
-        return !other_refs;
+        return other_refs;
     };
 
     while (!work.is_null()) {
@@ -123,32 +120,32 @@ void Allocator::deref(Ref&& ref)
                 },
                 [&](const TagView<Tag::EXT_ATOM,16>&) { },
                 [&](const TagView<Tag::CONS,16>& cons) {
-                    todo_a = from_shortref(cons.left);
-                    todo_b = from_shortref(cons.right);
+                    todo_a = cons.left;
+                    todo_b = cons.right;
                 },
                 [&](const TagView<Tag::ERROR,16>&) { },
                 [&](const TagView<Tag::FUNC,16>& func) {
-                    todo_a = from_shortref(func.env);
-                    todo_b = from_shortref(func.state);
+                    todo_a = func.env;
+                    todo_b = func.state;
                 },
                 [&](const TagView<Tag::FUNC_COUNT,16>& func_count) {
-                    todo_a = from_shortref(func_count.env);
-                    todo_b = from_shortref(func_count.state);
+                    todo_a = func_count.env;
+                    todo_b = func_count.state;
                 },
                 [&](const TagView<Tag::FUNC_EXT,16>& func_ext) {
                     std::free(const_cast<void*>(func_ext.state));
-                    todo_a = from_shortref(func_ext.env);
+                    todo_a = func_ext.env;
                 }
             ));
-            if (has_other_refs(todo_a)) todo_a = NULLREF;
-            if (has_other_refs(todo_b)) todo_b = NULLREF;
+            if (!todo_a.is_null() && has_other_refs(todo_a)) todo_a = NULLREF;
+            if (!todo_b.is_null() && has_other_refs(todo_b)) todo_b = NULLREF;
             if (todo_a.is_null() && !todo_b.is_null()) std::swap(todo_a, todo_b);
             if (todo_b.is_null()) {
                 deallocate(std::move(work));
                 work = std::move(todo_a);
             } else {
                 // todo_a and todo_b are not null, therefore size is 16, therefore convert to cons
-                set_at(work, TagView<Tag::CONS, 16>{.left=to_shortref(todo_b), .right=to_shortref(todo)});
+                set_at(work, TagView<Tag::CONS, 16>{.left=todo_b, .right=todo});
                 todo = work;
                 work = todo_a;
             }

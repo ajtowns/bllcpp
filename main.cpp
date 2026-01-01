@@ -120,12 +120,22 @@ int main(void)
     alloc.DumpChunks();
 
     Buddy::Ref r[] = {
-        alloc.allocate(Buddy::Tag::CONS, 16),
-        alloc.allocate(Buddy::Tag::INPLACE_ATOM, 16),
-        alloc.allocate(Buddy::Tag::INPLACE_ATOM, 16),
-        alloc.allocate(Buddy::Tag::INPLACE_ATOM, 64),
-        alloc.allocate(Buddy::Tag::CONS, 16),
+        alloc.create<Buddy::Tag::CONS, 16>(Buddy::TagView<Buddy::Tag::CONS,16>{.left=Buddy::NULLREF, .right=Buddy::NULLREF}),
+        alloc.create<Buddy::Tag::INPLACE_ATOM, 16>("hello"),
+        alloc.create<Buddy::Tag::INPLACE_ATOM, 16>("hello, world!"),
+        alloc.create<Buddy::Tag::INPLACE_ATOM, 64>("the quick brown fox jumps over the lazy dog"),
+        alloc.create<Buddy::Tag::CONS, 16>({.left=Buddy::NULLREF, .right=Buddy::NULLREF}),
     };
+    alloc.DumpChunks();
+
+    auto r2 = alloc.create<Buddy::Tag::CONS, 16>({.left=alloc.bumpref(r[0]), .right=alloc.bumpref(r[1])});
+    alloc.DumpChunks();
+
+    alloc.deref(std::move(r[0]));
+    alloc.DumpChunks();
+
+    alloc.deref(std::move(r2));
+    alloc.DumpChunks();
 
     return 0;
 }
