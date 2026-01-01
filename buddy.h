@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdlib>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <span>
@@ -66,12 +67,13 @@ enum class Tag : uint8_t
 {
     NOREFCOUNT   = 0,
     INPLACE_ATOM = 1,
-    EXT_ATOM     = 2,
-    CONS         = 3,
-    ERROR        = 4,
-    FUNC         = 5,
-    FUNC_COUNT   = 6,
-    FUNC_EXT     = 7,
+    OWNED_ATOM   = 2,
+    EXT_ATOM     = 3,
+    CONS         = 4,
+    ERROR        = 5,
+    FUNC         = 6,
+    FUNC_COUNT   = 7,
+    FUNC_EXT     = 8,
 };
 std::optional<Tag> GetTag(uint8_t t, Shift16 sz)
 {
@@ -99,19 +101,19 @@ struct TagInfo {
         }
     }
 
-    uint8_t tagbyte() const
+    constexpr uint8_t tagbyte() const
     {
         return (free ? 0x80 : 0x00) | (static_cast<uint8_t>(tag.value_or(Tag::NOREFCOUNT)) << 2) | size.sh;
     }
 
-    static TagInfo Free(Shift16 sz)
+    static constexpr TagInfo Free(Shift16 sz)
     {
         TagInfo r;
         r.size = sz;
         return r;
     }
 
-    static TagInfo Allocated(Tag tag, Shift16 sz)
+    static constexpr TagInfo Allocated(Tag tag, Shift16 sz)
     {
         TagInfo res;
         res.free = false;
@@ -127,14 +129,18 @@ private:
     std::array<uint8_t, 3> val{0,0,0};
 public:
     Uint24() = default;
-    explicit Uint24(std::span<const uint8_t> s)
+    explicit constexpr Uint24(std::span<const uint8_t> s)
     {
         if (s.size() == 3) {
             val[0] = s[0]; val[1] = s[1]; val[2] = s[2];
         }
     }
+    explicit constexpr Uint24(uint32_t v)
+    {
+        write(v);
+    }
 
-    uint32_t read() const { return val[0] + (val[1] << 8) + (val[1] << 16); }
+    constexpr uint32_t read() const { return val[0] + (val[1] << 8) + (val[1] << 16); }
 
     void write(uint32_t v)
     {
@@ -154,9 +160,10 @@ struct TagView;
 
 struct TagRefCount
 {
-    const uint8_t tag;
-    Uint24 refcount;
+    uint8_t tag;
+    mutable Uint24 refcount;
 };
+static_assert(sizeof(TagRefCount) == 4);
 
 template<uint8_t SIZE>
 struct alignas(16) TagView<Tag::NOREFCOUNT, SIZE>
@@ -170,9 +177,8 @@ static_assert(sizeof(TagView<Tag::NOREFCOUNT, 64>) == 64);
 static_assert(sizeof(TagView<Tag::NOREFCOUNT, 128>) == 128);
 
 template<uint8_t SIZE>
-struct alignas(16) TagView<Tag::INPLACE_ATOM, SIZE>
+struct alignas(16) TagView<Tag::INPLACE_ATOM, SIZE> : public TagRefCount
 {
-    TagRefCount trc;
     uint8_t size;
     std::array<uint8_t, SIZE-5> data;
     std::span<uint8_t> span() { return std::span(data).subspan(0, size); }
@@ -184,9 +190,17 @@ static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 64>) == 64);
 static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 128>) == 128);
 
 template<>
-struct TagView<Tag::EXT_ATOM, 16>
+struct TagView<Tag::OWNED_ATOM, 16> : public TagRefCount
 {
-    TagRefCount trc;
+    uint32_t size;
+    const uint8_t* data;
+    std::span<const uint8_t> span() const { return std::span<const uint8_t>{data, size}; }
+};
+static_assert(sizeof(TagView<Tag::OWNED_ATOM, 16>) == 16);
+
+template<>
+struct TagView<Tag::EXT_ATOM, 16> : public TagRefCount
+{
     uint32_t size;
     const uint8_t* data;
     std::span<const uint8_t> span() const { return std::span<const uint8_t>{data, size}; }
@@ -194,28 +208,25 @@ struct TagView<Tag::EXT_ATOM, 16>
 static_assert(sizeof(TagView<Tag::EXT_ATOM, 16>) == 16);
 
 template<>
-struct TagView<Tag::CONS, 16>
+struct TagView<Tag::CONS, 16> : public TagRefCount
 {
-    TagRefCount trc;
     Uint24 left;
     Uint24 right;
-    std::array<uint8_t,6> padding;
+    std::array<uint8_t,6> padding{0};
 };
 static_assert(sizeof(TagView<Tag::CONS, 16>) == 16);
 
 template<>
-struct TagView<Tag::ERROR, 16>
+struct TagView<Tag::ERROR, 16> : public TagRefCount
 {
-    TagRefCount trc;
     uint32_t line;
     const char* filename;
 };
 static_assert(sizeof(TagView<Tag::ERROR, 16>) == 16);
 
 template<>
-struct TagView<Tag::FUNC, 16>
+struct TagView<Tag::FUNC, 16> : public TagRefCount
 {
-    TagRefCount trc;
     Func funcid;
     Uint24 env;
     Uint24 state;
@@ -224,9 +235,8 @@ struct TagView<Tag::FUNC, 16>
 static_assert(sizeof(TagView<Tag::FUNC, 16>) == 16);
 
 template<>
-struct TagView<Tag::FUNC_COUNT, 16>
+struct TagView<Tag::FUNC_COUNT, 16> : public TagRefCount
 {
-    TagRefCount trc;
     FuncCount funcid;
     Uint24 env;
     Uint24 state;
@@ -235,14 +245,31 @@ struct TagView<Tag::FUNC_COUNT, 16>
 static_assert(sizeof(TagView<Tag::FUNC_COUNT, 16>) == 16);
 
 template<>
-struct TagView<Tag::FUNC_EXT, 16>
+struct TagView<Tag::FUNC_EXT, 16> : public TagRefCount
 {
-    TagRefCount trc;
     FuncExt funcid;
     Uint24 env;
     const void* state;
 };
 static_assert(sizeof(TagView<Tag::FUNC_EXT, 16>) == 16);
+
+template<typename Fn>
+concept TagViewCallable =
+    std::invocable<Fn, TagView<Tag::NOREFCOUNT, 16>&> &&
+    std::invocable<Fn, TagView<Tag::NOREFCOUNT, 32>&> &&
+    std::invocable<Fn, TagView<Tag::NOREFCOUNT, 64>&> &&
+    std::invocable<Fn, TagView<Tag::NOREFCOUNT, 128>&> &&
+    std::invocable<Fn, TagView<Tag::INPLACE_ATOM, 16>&> &&
+    std::invocable<Fn, TagView<Tag::INPLACE_ATOM, 32>&> &&
+    std::invocable<Fn, TagView<Tag::INPLACE_ATOM, 64>&> &&
+    std::invocable<Fn, TagView<Tag::INPLACE_ATOM, 128>&> &&
+    std::invocable<Fn, TagView<Tag::OWNED_ATOM, 16>&> &&
+    std::invocable<Fn, TagView<Tag::EXT_ATOM, 16>&> &&
+    std::invocable<Fn, TagView<Tag::CONS, 16>&> &&
+    std::invocable<Fn, TagView<Tag::ERROR, 16>&> &&
+    std::invocable<Fn, TagView<Tag::FUNC, 16>&> &&
+    std::invocable<Fn, TagView<Tag::FUNC_COUNT, 16>&> &&
+    std::invocable<Fn, TagView<Tag::FUNC_EXT, 16>&>;
 
 struct Ref {
     uint16_t block;
@@ -324,12 +351,32 @@ private:
     void FreeHalfChunk(Ref ref, Shift16 sz);
 
     // combines buddies; but does not recursively deref
-    void deallocate(Ref&& ref, Shift16 sz);
+    void deallocate(Ref&& ref);
+
+    template<Tag TAG, size_t SIZE>
+    void set_at(Ref ref, TagView<TAG, SIZE> tv)
+    {
+        Chunk* chunk = GetChunk(ref);
+        *TagViewAt<TAG,SIZE>(chunk) = tv;
+        chunk->data[0] = TagInfo::Allocated(TAG, SIZE).tagbyte();
+    }
 
 public:
     Allocator()
     {
         for (Ref& ref : m_free) ref = NULLREF;
+    }
+
+    Ref from_shortref(Uint24 ref3)
+    {
+        static_assert( (1ul<<24)/CHUNK_COUNT <= std::numeric_limits<uint16_t>::max() );
+        static_assert( CHUNK_COUNT <= std::numeric_limits<uint16_t>::max() );
+        uint32_t v = ref3.read();
+        return {{.block = static_cast<uint16_t>(v/CHUNK_COUNT), .chunk = static_cast<uint16_t>(v%CHUNK_COUNT)}};
+    }
+    Uint24 to_shortref(Ref ref)
+    {
+        return Uint24{static_cast<uint32_t>(ref.block * CHUNK_COUNT + ref.chunk)};
     }
 
     Ref allocate(Tag tag, AllocShift16 sz);
@@ -346,7 +393,7 @@ public:
         }
     }
 
-    template<typename Fn>
+    template<TagViewCallable Fn>
     void dispatch(Ref ref, Fn&& fn)
     {
         using enum Tag;
@@ -367,6 +414,8 @@ public:
             if (tag.size.sh == 2) return fn(*TagViewAt<INPLACE_ATOM,64>(chunk));
             if (tag.size.sh == 3) return fn(*TagViewAt<INPLACE_ATOM,128>(chunk));
             break;
+        case OWNED_ATOM:
+            return fn(*TagViewAt<OWNED_ATOM,16>(chunk));
         case EXT_ATOM:
             return fn(*TagViewAt<EXT_ATOM,16>(chunk));
         case CONS:
@@ -391,7 +440,8 @@ private:
 
     AtomRef() = default;
 
-    AtomRef(Ref _ref, std::span<const uint8_t> _atom) : ref{_ref}, atom{_atom} { }
+    AtomRef(std::span<const uint8_t> _atom) : ref{NULLREF}, atom{_atom} { }
+    AtomRef(Ref&& _ref, std::span<const uint8_t> _atom) : ref{std::move(_ref)}, atom{_atom} { }
 
 public:
     std::span<const uint8_t> span() const { return atom; }
@@ -401,13 +451,16 @@ public:
         std::optional<AtomRef> res{std::nullopt};
         alloc.dispatch(ref, util::Overloaded(
             [&]<uint8_t SIZE>(const TagView<Tag::INPLACE_ATOM,SIZE>& atom) {
-                res = AtomRef(ref, atom.span());
+                res = AtomRef(std::move(ref), atom.span());
+            },
+            [&](const TagView<Tag::OWNED_ATOM,16>& atomown) {
+                res = AtomRef(std::move(ref), atomown.span());
             },
             [&](const TagView<Tag::EXT_ATOM,16>& atomext) {
-                res = AtomRef(NULLREF, atomext.span());
+                res = AtomRef(atomext.span());
                 alloc.deref(std::move(ref));
             },
-            [](const auto&) { }
+            [](const auto&) { } // not an atom
         ));
         return res;
     }
