@@ -1,10 +1,13 @@
 #ifndef BUDDY_H
 #define BUDDY_H
 
+#include <overloaded.h>
+
 #include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -59,58 +62,223 @@ struct AllocShift16 : public Shift16
     }
 };
 
+enum class Tag : uint8_t
+{
+    NOREFCOUNT   = 0,
+    INPLACE_ATOM = 1,
+    EXT_ATOM     = 2,
+    CONS         = 3,
+    ERROR        = 4,
+    FUNC         = 5,
+    FUNC_COUNT   = 6,
+    FUNC_EXT     = 7,
+};
+std::optional<Tag> GetTag(uint8_t t, Shift16 sz)
+{
+    if (t > static_cast<uint8_t>(Tag::FUNC_EXT)) return std::nullopt;
+    if (sz.sh > 0 && t > static_cast<uint8_t>(Tag::INPLACE_ATOM)) return std::nullopt;
+    return Tag{t};
+}
+
 struct TagInfo {
-    bool free{false};
-    uint8_t tag{0};
+    bool free{true};
     Shift16 size{16};
+    std::optional<Tag> tag{std::nullopt};
 
     TagInfo() = default;
     TagInfo(uint8_t b)
     {
         if ((b & 0x80) != 0) {
             free = true;
-            tag = 0;
             size.set(b & 0x7F);
+            tag = std::nullopt;
         } else {
             free = false;
-            tag = (b >> 2) & 0x1F;
             size.set(b & 0x03);
+            tag = GetTag(b >> 2, size);
         }
     }
 
     uint8_t tagbyte() const
     {
-        return (free ? 0x80 : 0x00) | (tag << 2) | size.sh;
+        return (free ? 0x80 : 0x00) | (static_cast<uint8_t>(tag.value_or(Tag::NOREFCOUNT)) << 2) | size.sh;
     }
 
     static TagInfo Free(Shift16 sz)
     {
-        return TagInfo(static_cast<uint8_t>(0x80 | sz.sh));
+        TagInfo r;
+        r.size = sz;
+        return r;
     }
 
-    static TagInfo Allocated(uint8_t tag, Shift16 sz)
+    static TagInfo Allocated(Tag tag, Shift16 sz)
     {
         TagInfo res;
         res.free = false;
-        res.tag = (tag & 0x1F);
+        res.tag = tag;
         res.size = sz;
         return res;
     }
 };
 
+class Uint24
+{
+private:
+    std::array<uint8_t, 3> val{0,0,0};
+public:
+    Uint24() = default;
+    explicit Uint24(std::span<const uint8_t> s)
+    {
+        if (s.size() == 3) {
+            val[0] = s[0]; val[1] = s[1]; val[2] = s[2];
+        }
+    }
+
+    uint32_t read() const { return val[0] + (val[1] << 8) + (val[1] << 16); }
+
+    void write(uint32_t v)
+    {
+        val[0] = v & 0xFF;
+        val[1] = (v >> 8) & 0xFF;
+        val[2] = (v >> 16) & 0xFF;
+    }
+};
+static_assert(sizeof(Uint24) == 3 && alignof(Uint24) == 1);
+
+enum class Func : uint16_t;
+enum class FuncCount : uint16_t;
+enum class FuncExt : uint8_t;
+
+template<Tag TAG, size_t SIZE>
+struct TagView;
+
+struct TagRefCount
+{
+    const uint8_t tag;
+    Uint24 refcount;
+};
+
+template<uint8_t SIZE>
+struct alignas(16) TagView<Tag::NOREFCOUNT, SIZE>
+{
+    const uint8_t tag;
+    std::array<uint8_t, SIZE-1> data;
+};
+static_assert(sizeof(TagView<Tag::NOREFCOUNT, 16>) == 16);
+static_assert(sizeof(TagView<Tag::NOREFCOUNT, 32>) == 32);
+static_assert(sizeof(TagView<Tag::NOREFCOUNT, 64>) == 64);
+static_assert(sizeof(TagView<Tag::NOREFCOUNT, 128>) == 128);
+
+template<uint8_t SIZE>
+struct alignas(16) TagView<Tag::INPLACE_ATOM, SIZE>
+{
+    TagRefCount trc;
+    uint8_t size;
+    std::array<uint8_t, SIZE-5> data;
+    std::span<uint8_t> span() { return std::span(data).subspan(0, size); }
+    std::span<const uint8_t> span() const { return std::span(data).subspan(0, size); }
+};
+static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 16>) == 16);
+static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 32>) == 32);
+static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 64>) == 64);
+static_assert(sizeof(TagView<Tag::INPLACE_ATOM, 128>) == 128);
+
+template<>
+struct TagView<Tag::EXT_ATOM, 16>
+{
+    TagRefCount trc;
+    uint32_t size;
+    const uint8_t* data;
+    std::span<const uint8_t> span() const { return std::span<const uint8_t>{data, size}; }
+};
+static_assert(sizeof(TagView<Tag::EXT_ATOM, 16>) == 16);
+
+template<>
+struct TagView<Tag::CONS, 16>
+{
+    TagRefCount trc;
+    Uint24 left;
+    Uint24 right;
+    std::array<uint8_t,6> padding;
+};
+static_assert(sizeof(TagView<Tag::CONS, 16>) == 16);
+
+template<>
+struct TagView<Tag::ERROR, 16>
+{
+    TagRefCount trc;
+    uint32_t line;
+    const char* filename;
+};
+static_assert(sizeof(TagView<Tag::ERROR, 16>) == 16);
+
+template<>
+struct TagView<Tag::FUNC, 16>
+{
+    TagRefCount trc;
+    Func funcid;
+    Uint24 env;
+    Uint24 state;
+    std::array<uint8_t, 4> extra_state;
+};
+static_assert(sizeof(TagView<Tag::FUNC, 16>) == 16);
+
+template<>
+struct TagView<Tag::FUNC_COUNT, 16>
+{
+    TagRefCount trc;
+    FuncCount funcid;
+    Uint24 env;
+    Uint24 state;
+    uint32_t counter;
+};
+static_assert(sizeof(TagView<Tag::FUNC_COUNT, 16>) == 16);
+
+template<>
+struct TagView<Tag::FUNC_EXT, 16>
+{
+    TagRefCount trc;
+    FuncExt funcid;
+    Uint24 env;
+    const void* state;
+};
+static_assert(sizeof(TagView<Tag::FUNC_EXT, 16>) == 16);
+
+struct Ref {
+    uint16_t block;
+    uint16_t chunk;
+
+    struct Bare { uint16_t block, chunk; };
+
+    constexpr Ref() = default;
+    constexpr Ref(Bare b) : block{b.block}, chunk{b.chunk} { }
+    constexpr Ref(const Ref&) = default;
+
+    bool is_null() const { return block == 0xFFFF && chunk == 0xFFFF; }
+
+    Ref& operator=(const Ref&) = default;
+    Ref& operator=(Ref&& o)
+    {
+        *this = o;
+        o.block = o.chunk = 0xFFFF;
+        return *this;
+    }
+
+    Ref(Ref&& other) : block{other.block}, chunk{other.chunk}
+    {
+        other.block = other.chunk = 0xFFFF;
+    }
+
+    friend bool operator==(const Ref& l, const Ref& r)
+    {
+        return l.block == r.block && l.chunk == r.chunk;
+    }
+};
+static constexpr Ref NULLREF{{.block=0xFFFF, .chunk=0xFFFF}};
+
 class Allocator
 {
 private:
-
-    struct Ref {
-        uint16_t block;
-        uint16_t chunk;
-        friend bool operator==(const Ref& l, const Ref& r)
-        {
-            return l.block == r.block && l.chunk == r.chunk;
-        }
-    };
-    static constexpr Ref NULLREF = {0xFFFF, 0xFFFF};
     struct Info {
         uint8_t tag;
         Ref prev;
@@ -123,11 +291,17 @@ private:
     static_assert(sizeof(Chunk) == 16);
     static_assert(offsetof(Chunk, data) == offsetof(Chunk, info.tag));
 
+    template<Tag TAG, uint8_t SIZE>
+    TagView<TAG, SIZE>* TagViewAt(Chunk* chunk)
+    {
+        return reinterpret_cast<TagView<TAG,SIZE>*>(chunk);
+    };
+
     static constexpr size_t BLOCK_SIZE{256*1024};
     static constexpr Shift16 BLOCK_EXP{BLOCK_SIZE};
     static constexpr uint16_t CHUNK_COUNT{BLOCK_SIZE / sizeof(Chunk)};
 
-    struct Block { alignas(128) std::array<Chunk, CHUNK_COUNT> data; };
+    struct Block { alignas(128) std::array<Chunk, CHUNK_COUNT> chunk; };
 
     static_assert(BLOCK_EXP.byte_size() == BLOCK_SIZE);
     static_assert(CHUNK_COUNT * sizeof(Chunk) == BLOCK_SIZE);
@@ -136,18 +310,21 @@ private:
     std::vector<std::unique_ptr<Block>> m_blocks;
     std::array<Ref, BLOCK_EXP.sh> m_free;
 
-    Chunk* GetChunk(Ref ref) { return &(m_blocks[ref.block]->data[ref.chunk]); }
+    Chunk* GetChunk(Ref ref) { return &(m_blocks[ref.block]->chunk[ref.chunk]); }
 
     /* Removes ref from free list, returns "next" if available or NULLREF */
     Ref TakeFree(Ref ref);
     Ref GetBuddy(Ref ref, Shift16 sz)
     {
-        return Ref{.block = ref.block, .chunk=static_cast<uint16_t>(ref.chunk ^ sz.chunk_size())};
+        return Ref{{.block = ref.block, .chunk=static_cast<uint16_t>(ref.chunk ^ sz.chunk_size())}};
     }
 
     void MakeFree(Ref ref, Shift16 sz);
     void NewBlock();
     void FreeHalfChunk(Ref ref, Shift16 sz);
+
+    // combines buddies; but does not recursively deref
+    void deallocate(Ref&& ref, Shift16 sz);
 
 public:
     Allocator()
@@ -155,31 +332,89 @@ public:
         for (Ref& ref : m_free) ref = NULLREF;
     }
 
-    Ref allocate(uint8_t id, AllocShift16 sz);
-    void deallocate(Ref&& ref, Shift16 sz);
-};
+    Ref allocate(Tag tag, AllocShift16 sz);
+    void deref(Ref&& ref);
 
-class Type
-{
-private:
-    uint8_t m_type{0xFF};
-
-public:
-    explicit Type(uint8_t t) : m_type{t} { }
-    explicit consteval Type(Shift16 size, uint8_t code)
+    std::tuple<std::optional<Tag>, std::span<uint8_t>, Shift16> lookup(Ref ref)
     {
-        if (code >= 32) throw;
-        if (size.sh >= 4) throw;
-        m_type = (size.sh << 5) | code;
+        Chunk* chunk = GetChunk(ref);
+        TagInfo tag{chunk->data[0]};
+        if (tag.free) {
+            return {std::nullopt, {}, {}};
+        } else {
+            return {tag.tag, std::span<uint8_t>{&chunk->data[0], tag.size.byte_size()}.subspan(1), tag.size};
+        }
     }
 
-    bool allocated() const { return (m_type & 0x80) == 0; }
-    Shift16 size() const { return Shift16::FromInt((m_type >> 5) & 0x04); }
-    uint8_t code() const { return m_type & 0x1F; }
-
-    static Type Free(uint8_t size)
+    template<typename Fn>
+    void dispatch(Ref ref, Fn&& fn)
     {
-        return Type{static_cast<uint8_t>(0x80 | (size & 0x7F))};
+        using enum Tag;
+
+        Chunk* chunk = GetChunk(ref);
+        TagInfo tag{chunk->data[0]};
+        if (tag.free || !tag.tag) return;
+        switch(*tag.tag) {
+        case NOREFCOUNT:
+            if (tag.size.sh == 0) return fn(*TagViewAt<NOREFCOUNT,16>(chunk));
+            if (tag.size.sh == 1) return fn(*TagViewAt<NOREFCOUNT,32>(chunk));
+            if (tag.size.sh == 2) return fn(*TagViewAt<NOREFCOUNT,64>(chunk));
+            if (tag.size.sh == 3) return fn(*TagViewAt<NOREFCOUNT,128>(chunk));
+            break;
+        case INPLACE_ATOM:
+            if (tag.size.sh == 0) return fn(*TagViewAt<INPLACE_ATOM,16>(chunk));
+            if (tag.size.sh == 1) return fn(*TagViewAt<INPLACE_ATOM,32>(chunk));
+            if (tag.size.sh == 2) return fn(*TagViewAt<INPLACE_ATOM,64>(chunk));
+            if (tag.size.sh == 3) return fn(*TagViewAt<INPLACE_ATOM,128>(chunk));
+            break;
+        case EXT_ATOM:
+            return fn(*TagViewAt<EXT_ATOM,16>(chunk));
+        case CONS:
+            return fn(*TagViewAt<CONS,16>(chunk));
+        case ERROR:
+            return fn(*TagViewAt<ERROR,16>(chunk));
+        case FUNC:
+            return fn(*TagViewAt<FUNC,16>(chunk));
+        case FUNC_COUNT:
+            return fn(*TagViewAt<FUNC_COUNT,16>(chunk));
+        case FUNC_EXT:
+            return fn(*TagViewAt<FUNC_EXT,16>(chunk));
+        }
+    }
+};
+
+class AtomRef
+{
+private:
+    Ref ref;
+    std::span<const uint8_t> atom;
+
+    AtomRef() = default;
+
+    AtomRef(Ref _ref, std::span<const uint8_t> _atom) : ref{_ref}, atom{_atom} { }
+
+public:
+    std::span<const uint8_t> span() const { return atom; }
+
+    static std::optional<AtomRef> FromRef(Allocator& alloc, Ref&& ref)
+    {
+        std::optional<AtomRef> res{std::nullopt};
+        alloc.dispatch(ref, util::Overloaded(
+            [&]<uint8_t SIZE>(const TagView<Tag::INPLACE_ATOM,SIZE>& atom) {
+                res = AtomRef(ref, atom.span());
+            },
+            [&](const TagView<Tag::EXT_ATOM,16>& atomext) {
+                res = AtomRef(NULLREF, atomext.span());
+                alloc.deref(std::move(ref));
+            },
+            [](const auto&) { }
+        ));
+        return res;
+    }
+
+    void deallocate(Allocator& alloc)
+    {
+        alloc.deref(std::move(ref));
     }
 };
 

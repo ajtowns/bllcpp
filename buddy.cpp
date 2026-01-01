@@ -4,7 +4,7 @@
 
 namespace Buddy {
 
-Allocator::Ref Allocator::TakeFree(Allocator::Ref ref)
+Ref Allocator::TakeFree(Ref ref)
 {
     Ref result = NULLREF;
     Chunk* chunk = GetChunk(ref);
@@ -41,17 +41,17 @@ void Allocator::NewBlock()
 {
     uint16_t block = m_blocks.size();
     m_blocks.emplace_back(std::make_unique<Block>());
-    FreeHalfChunk({block, 0}, BLOCK_EXP);
+    FreeHalfChunk({{.block=block, .chunk=0}}, BLOCK_EXP);
 }
 
 void Allocator::FreeHalfChunk(Ref r, Shift16 sz)
 {
     assert(sz.sh > 0 && sz.sh <= m_free.size());
-    Ref other{.block=r.block, .chunk=static_cast<uint16_t>(r.chunk + (1<<(sz.sh-1)))};
+    Ref other{{.block=r.block, .chunk=static_cast<uint16_t>(r.chunk + (1<<(sz.sh-1)))}};
     MakeFree(other, sz - 1);
 }
 
-Allocator::Ref Allocator::allocate(uint8_t id, AllocShift16 sz)
+Ref Allocator::allocate(Tag tag, AllocShift16 sz)
 {
     size_t best_free = sz.sh;
     while (best_free < m_free.size() && m_free[best_free] == NULLREF) {
@@ -73,7 +73,7 @@ Allocator::Ref Allocator::allocate(uint8_t id, AllocShift16 sz)
         --best_free;
     }
 
-    GetChunk(blk)->data[0] = TagInfo::Allocated(id, sz).tagbyte();
+    GetChunk(blk)->data[0] = TagInfo::Allocated(tag, sz).tagbyte();
 
     return blk;
 }
