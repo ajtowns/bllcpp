@@ -1,6 +1,7 @@
 #ifndef SAFEREF_H
 #define SAFEREF_H
 
+#include <attributes.h>
 #include <buddy.h>
 #include <logging.h>
 #include <overloaded.h>
@@ -14,10 +15,10 @@ private:
     Buddy::Allocator& m_alloc;
 
 public:
-    explicit SafeAllocator(Buddy::Allocator& alloc) : m_alloc{alloc} { }
+    explicit SafeAllocator(Buddy::Allocator& alloc LIFETIMEBOUND) : m_alloc{alloc} { }
 
     // const access to m_alloc
-    const Buddy::Allocator& Allocator() const { return m_alloc; }
+    const Buddy::Allocator& Allocator() const LIFETIMEBOUND { return m_alloc; }
 
     class SafeRef {
     private:
@@ -26,7 +27,7 @@ public:
         SafeAllocator& m_safealloc;
         Ref m_ref;
 
-        explicit SafeRef(SafeAllocator& sa, Ref&& r) : m_safealloc{sa}, m_ref{std::move(r)} { }
+        explicit SafeRef(SafeAllocator& sa LIFETIMEBOUND, Ref&& r) : m_safealloc{sa}, m_ref{std::move(r)} { }
 
         void deref()
         {
@@ -54,36 +55,36 @@ public:
         std::string to_string() { return Buddy::to_string(m_safealloc.m_alloc, m_ref); }
     };
 
-    SafeRef create(SafeRef&& r) { return std::move(r); }
+    SafeRef create(SafeRef&& r) LIFETIMEBOUND { return std::move(r); }
 
     template<typename... T>
-    SafeRef create(T&&... args)
+    SafeRef create(T&&... args) LIFETIMEBOUND
     {
         return SafeRef(*this, m_alloc.create(std::forward<T>(args)...));
     }
 
-    SafeRef cons(SafeRef&& left, SafeRef&& right)
+    SafeRef cons(SafeRef&& left, SafeRef&& right) LIFETIMEBOUND
     {
         Ref l = left.m_ref.take();
         Ref r = right.m_ref.take();
         return make_safe(m_alloc.create<Buddy::Tag::CONS,16>({.left=l, .right=r}));
     }
 
-    SafeRef create_list() { return nil(); }
+    SafeRef create_list() LIFETIMEBOUND { return nil(); }
     template<typename T1, typename... T>
-    SafeRef create_list(T1&& el1, T&&... args)
+    SafeRef create_list(T1&& el1, T&&... args) LIFETIMEBOUND
     {
         SafeRef t = create_list(std::forward<T>(args)...);
         return cons(this->create(el1), std::move(t));
     }
 
-    SafeRef nil() { return make_safe(m_alloc.nil()); }
-    SafeRef one() { return make_safe(m_alloc.one()); }
+    SafeRef nil() LIFETIMEBOUND { return make_safe(m_alloc.nil()); }
+    SafeRef one() LIFETIMEBOUND { return make_safe(m_alloc.one()); }
 
     void DumpChunks(std::source_location sloc = std::source_location::current()) { m_alloc.DumpChunks(sloc); }
 
 private:
-    SafeRef make_safe(Ref&& ref) { return SafeRef{*this, std::move(ref)}; };
+    SafeRef make_safe(Ref&& ref) LIFETIMEBOUND { return SafeRef{*this, std::move(ref)}; };
 };
 using SafeRef = SafeAllocator::SafeRef;
 
