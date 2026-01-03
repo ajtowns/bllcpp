@@ -1,4 +1,5 @@
 #include <buddy.h>
+#include <saferef.h>
 #include <element.h>
 #include <workitem.h>
 #include <elconcept.h>
@@ -101,22 +102,8 @@ void test8(Arena& arena)
     run(wi);
 }
 
-int main(void)
+void test9(Buddy::Allocator& alloc)
 {
-  {
-    Arena arena;
-    test1(arena);
-    test2(arena);
-    test3(arena);
-    test4(arena);
-    test5(arena);
-    test6(arena);
-    test7(arena);
-    test8(arena);
-
-    std::cout << "======================" << std::endl;
-  }
-    Buddy::Allocator alloc;
     alloc.DumpChunks();
 
     Buddy::Ref r[] = {
@@ -134,7 +121,7 @@ int main(void)
     std::cout << "r[] = {";
     bool first = true;
     for (auto& x : r) {
-         std::cout << (first ? "" : " ; ") << print(alloc, x);
+         std::cout << (first ? "" : " ; ") << to_string(alloc, x);
          first = false;
     }
     std::cout << "}" << std::endl;
@@ -149,7 +136,7 @@ int main(void)
     for (int i = 0; i < 4000; ++i) {
         r3 = alloc.create_cons((i % 2 == 0 ? alloc.nil() : alloc.one()), std::move(r3));
     }
-    std::cout << "r3 = " << print(alloc, r3) << std::endl;
+    std::cout << "r3 = " << Buddy::to_string(alloc, r3) << std::endl;
 
     alloc.deref(std::move(r2));
     alloc.DumpChunks();
@@ -162,6 +149,77 @@ int main(void)
 
     for (auto& x : r) { alloc.deref(std::move(x)); }
     alloc.DumpChunks();
+}
 
+void test10(Buddy::Allocator& raw_alloc)
+{
+    SafeAllocator alloc(raw_alloc);
+    alloc.DumpChunks();
+
+    SafeRef r[] = {
+        alloc.cons(alloc.nil(), alloc.one()),
+        alloc.create("hello"),
+        alloc.create("hello, world!"),
+        alloc.create("the quick brown fox jumps over the lazy dog"),
+        alloc.create("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        alloc.cons(alloc.nil(), alloc.nil()),
+        alloc.create_list("hello", "there", "you", "munchkin"),
+        alloc.create_list("primes", 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31),
+    };
+    alloc.DumpChunks();
+
+    std::cout << "r[] = {";
+    bool first = true;
+    for (auto& x : r) {
+         std::cout << (first ? "" : " ; ") << x.to_string();
+         first = false;
+    }
+    std::cout << "}" << std::endl;
+
+    auto r2 = alloc.cons(r[0].copy(), r[1].copy());
+    alloc.DumpChunks();
+
+    r[0] = r[1].copy();
+    alloc.DumpChunks();
+
+    SafeRef r3 = alloc.nil();
+    for (int i = 0; i < 4000; ++i) {
+        r3 = alloc.cons((i % 2 == 0 ? alloc.nil() : alloc.one()), std::move(r3));
+    }
+    std::cout << "r3 = " << r3.to_string() << std::endl;
+
+    r2 = alloc.nil();
+    alloc.DumpChunks();
+
+    r3 = alloc.nil();
+    alloc.DumpChunks();
+
+    r3 = alloc.cons(alloc.one(), alloc.one());
+    alloc.DumpChunks();
+
+    for (auto& x : r) { x = alloc.nil(); }
+    alloc.DumpChunks();
+}
+
+
+int main(void)
+{
+  {
+    Arena arena;
+    test1(arena);
+    test2(arena);
+    test3(arena);
+    test4(arena);
+    test5(arena);
+    test6(arena);
+    test7(arena);
+    test8(arena);
+
+    std::cout << "======================" << std::endl;
+  }
+    Buddy::Allocator alloc;
+    //test9(alloc);
+    test10(alloc);
+    alloc.DumpChunks();
     return 0;
 }
