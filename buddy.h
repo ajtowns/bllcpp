@@ -1,6 +1,7 @@
 #ifndef BUDDY_H
 #define BUDDY_H
 
+#include <logging.h>
 #include <overloaded.h>
 #include <tinyformat.h>
 
@@ -149,7 +150,7 @@ public:
     }
     constexpr Uint24(uint32_t v) : val{by(v,0), by(v,1), by(v,2)} { }
 
-    constexpr uint32_t read() const { return val[0] + (val[1] << 8) + (val[1] << 16); }
+    constexpr uint32_t read() const { return val[0] + (val[1] << 8) + (val[2] << 16); }
 
     void write(uint32_t v)
     {
@@ -159,8 +160,10 @@ public:
     }
 };
 static_assert(sizeof(Uint24) == 3 && alignof(Uint24) == 1);
+static_assert(Uint24{uint32_t{1000}}.read() == 1000);
 
-class Ref {
+class Ref
+{
 private:
     friend class Allocator;
     friend class ShortRef;
@@ -169,33 +172,31 @@ private:
     uint16_t chunk;
 
 public:
+    struct NullRef_tag { };
+
     Ref() = delete; // explicitly initialize as NULLREF instead
 
     struct Bare { uint16_t block, chunk; };
 
-    constexpr Ref(Bare b) : block{b.block}, chunk{b.chunk} { }
-    constexpr Ref(const Ref&) = default;
-    constexpr Ref(Ref&& other) : block{other.block}, chunk{other.chunk}
-    {
-        other.block = other.chunk = 0xFFFF;
-    }
+    constexpr Ref(const NullRef_tag&) : block{0xFFFF}, chunk{0xFFFF} { }
+    explicit constexpr Ref(Bare b) : block{b.block}, chunk{b.chunk} { }
 
+    constexpr Ref(const Ref&) = default;
+    Ref& operator=(Ref&& o) = default;
+    constexpr Ref(Ref&& other) = default;
+    Ref& operator=(const Ref&) = default;
+
+    void set_null() { block = chunk = 0xFFFF; }
     constexpr bool is_null() const { return block == 0xFFFF && chunk == 0xFFFF; }
 
-    Ref& operator=(const Ref&) = default;
-    Ref& operator=(Ref&& o)
-    {
-        *this = o;
-        o.block = o.chunk = 0xFFFF;
-        return *this;
-    }
+    Ref take() { Ref r = *this; set_null(); return r; }
 
     friend constexpr bool operator==(const Ref& l, const Ref& r)
     {
         return l.block == r.block && l.chunk == r.chunk;
     }
 };
-inline constexpr Ref NULLREF{{.block=0xFFFF, .chunk=0xFFFF}};
+inline constexpr Ref::NullRef_tag NULLREF{};
 
 class ShortRef
 {
@@ -207,21 +208,22 @@ private:
 
 public:
     constexpr ShortRef(const Ref& ref) : m_value{static_cast<uint32_t>(ref.is_null() ? 0xFFFFFF : ref.block * CHUNK_COUNT + ref.chunk)} { }
+    constexpr ShortRef(const Ref::NullRef_tag&) : ShortRef(Ref(NULLREF)) { }
 
     constexpr operator Ref() const
     {
-        Ref res{NULLREF};
+        Ref::Bare res{.block=0xFFFF, .chunk=0xFFFF};
         uint32_t v = m_value.read();
         if (v != 0xFFFFFF) {
             res.block = static_cast<uint16_t>(v / CHUNK_COUNT);
             res.chunk = static_cast<uint16_t>(v % CHUNK_COUNT);
         }
-        return res;
+        return Ref{res};
     }
 
     constexpr uint32_t get_value() const { return m_value.read(); }
 };
-static_assert(ShortRef{NULLREF} == NULLREF);
+static_assert(Ref{ShortRef{NULLREF}} == Ref{NULLREF});
 static_assert(ShortRef{NULLREF}.get_value() == 0xFFFFFF);
 
 enum class Func : uint16_t;
@@ -276,6 +278,7 @@ struct TagView<Tag::OWNED_ATOM, 16> : public TagRefCount
     uint32_t size;
     const uint8_t* data;
     std::span<const uint8_t> span() const { return std::span<const uint8_t>{data, size}; }
+    TagView<Tag::OWNED_ATOM, 16>(const uint8_t* _data, uint32_t _size) : size{_size}, data{_data} { }
 };
 static_assert(sizeof(TagView<Tag::OWNED_ATOM, 16>) == 16);
 
@@ -352,6 +355,19 @@ concept TagViewCallable =
     std::invocable<Fn, TagView<Tag::FUNC_COUNT, 16>&> &&
     std::invocable<Fn, TagView<Tag::FUNC_EXT, 16>&>;
 
+template<typename TV>
+inline constexpr bool IsTagView = false;
+
+template<Tag TAG, size_t SIZE>
+inline constexpr bool IsTagView<TagView<TAG,SIZE>> = true;
+
+template<typename T>
+concept AtomicTagView = IsTagView<T> && requires(const T t) {
+    { t.span() } -> std::same_as<std::span<const uint8_t>>;
+};
+
+static_assert(AtomicTagView<TagView<Tag::EXT_ATOM,16>>);
+
 class Allocator
 {
 private:
@@ -426,6 +442,9 @@ private:
         chunk->data[0] = TagInfo::Allocated(TAG, SIZE).tagbyte();
     }
 
+    Ref _nil{NULLREF};
+    Ref _one{NULLREF};
+
 public:
     Allocator() = default;
 
@@ -454,12 +473,49 @@ public:
         return r;
     }
 
-    template<Tag TAG, size_t SIZE, typename... T>
-    Ref create(T&&... args)
+    Ref create(std::span<const uint8_t> sp)
     {
-        Ref r{allocate(SIZE)};
-        set_at(r, TagView<TAG,SIZE>(args...));
-        return r;
+        if (sp.size() == 0) return nil();
+        if (sp.size() == 1 && sp[0] == 1) return one();
+        if (sp.size() < 12) return create<Tag::INPLACE_ATOM,16>(sp);
+        if (sp.size() < 28) return create<Tag::INPLACE_ATOM,32>(sp);
+        if (sp.size() < 60) return create<Tag::INPLACE_ATOM,64>(sp);
+        if (sp.size() < 124) return create<Tag::INPLACE_ATOM,128>(sp);
+        uint8_t* ext{static_cast<uint8_t*>(std::malloc(sp.size()))};
+        std::copy(sp.begin(), sp.end(), ext);
+        return create<Tag::OWNED_ATOM,16>({ext, static_cast<uint32_t>(sp.size())});
+    }
+    Ref create(std::span<const char> sp) { return create(MakeUCharSpan(sp)); }
+    Ref create(std::string_view sv) { return create(MakeUCharSpan(sv)); }
+    Ref create(const char* s) { return create(std::span(s, strlen(s))); }
+    Ref create(int64_t n);
+
+    Ref create(Ref&& r) { return r.take(); }
+
+    Ref nil()
+    {
+        std::array<const uint8_t,0> __nil;
+        if (_nil.is_null()) _nil = create<Tag::INPLACE_ATOM,16>({__nil});
+        return bumpref(_nil);
+    }
+
+    Ref one()
+    {
+        std::array<const uint8_t,1> __one{{1}};
+        if (_one.is_null()) _one = create<Tag::INPLACE_ATOM,16>({__one});
+        return bumpref(_one);
+    }
+
+    Ref create_cons(Ref&& left, Ref&& right)
+    {
+        return create<Buddy::Tag::CONS, 16>({.left=left.take(), .right=right.take()});
+    }
+
+    Ref create_list() { return nil(); }
+    template<typename T1, typename... T>
+    Ref create_list(T1&& el1, T&&... args) {
+        Ref t = create_list(std::forward<T>(args)...);
+        return create_cons(this->create(std::forward<T1>(el1)), std::move(t));
     }
 
     Ref bumpref(Ref& ref)
@@ -538,44 +594,43 @@ public:
     }
 };
 
-class AtomRef
+template<bool RequireMin=true>
+inline std::optional<int64_t> SmallInt(std::span<const uint8_t> sp)
 {
-private:
-    Ref ref{NULLREF};
-    std::span<const uint8_t> atom;
-
-    AtomRef() = default;
-
-    AtomRef(std::span<const uint8_t> _atom) : ref{NULLREF}, atom{_atom} { }
-    AtomRef(Ref&& _ref, std::span<const uint8_t> _atom) : ref{std::move(_ref)}, atom{_atom} { }
-
-public:
-    std::span<const uint8_t> span() const { return atom; }
-
-    static std::optional<AtomRef> FromRef(Allocator& alloc, Ref&& ref)
-    {
-        std::optional<AtomRef> res{std::nullopt};
-        alloc.dispatch(ref, util::Overloaded(
-            [&]<uint8_t SIZE>(const TagView<Tag::INPLACE_ATOM,SIZE>& atom) {
-                res = AtomRef(std::move(ref), atom.span());
-            },
-            [&](const TagView<Tag::OWNED_ATOM,16>& atomown) {
-                res = AtomRef(std::move(ref), atomown.span());
-            },
-            [&](const TagView<Tag::EXT_ATOM,16>& atomext) {
-                res = AtomRef(atomext.span());
-                alloc.deref(std::move(ref));
-            },
-            [](const auto&) { } // not an atom
-        ));
-        return res;
+    if (sp.empty()) return 0;
+    if constexpr (RequireMin) {
+        if (sp.back() == 0x00 || sp.back() == 0x80) {
+            size_t s = sp.size();
+            if (s == 1 || (sp[s-2] & 0x80) == 0) return std::nullopt;
+        }
     }
-
-    void deallocate(Allocator& alloc)
-    {
-        alloc.deref(std::move(ref));
+    int64_t res = 0;
+    if (sp.back() & 0x80) {
+        // negative
+        for (size_t i = 0; i < sp.size(); ++i) {
+            int64_t v = sp[i];
+            if (i == sp.size() - 1) v &= 0x7F;
+            if (sp[i] != 0) {
+                 if (i >= 8) return std::nullopt;
+                 if (i == 7 && ((res > 0 && v == 0x80) || v > 0x80)) return std::nullopt;
+                 res += (-v << (8*i));
+            }
+        }
+    } else {
+        // positive
+        for (size_t i = 0; i < sp.size(); ++i) {
+            int64_t v = sp[i];
+            if (sp[i] != 0) {
+                 if (i >= 8) return std::nullopt;
+                 if (i == 7 && v >= 0x80) return std::nullopt;
+                 res += (v << (8*i));
+            }
+        }
     }
-};
+    return res;
+}
+
+std::string to_string(Allocator& alloc, Ref ref, bool in_list=false);
 
 } // Buddy namespace
 

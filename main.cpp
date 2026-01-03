@@ -120,13 +120,24 @@ int main(void)
     alloc.DumpChunks();
 
     Buddy::Ref r[] = {
-        alloc.create<Buddy::Tag::CONS, 16>(Buddy::TagView<Buddy::Tag::CONS,16>{.left=Buddy::NULLREF, .right=Buddy::NULLREF}),
-        alloc.create<Buddy::Tag::INPLACE_ATOM, 16>("hello"),
-        alloc.create<Buddy::Tag::INPLACE_ATOM, 16>("hello, world!"),
-        alloc.create<Buddy::Tag::INPLACE_ATOM, 64>("the quick brown fox jumps over the lazy dog"),
-        alloc.create<Buddy::Tag::CONS, 16>({.left=Buddy::NULLREF, .right=Buddy::NULLREF}),
+        alloc.create<Buddy::Tag::CONS, 16>({.left=alloc.nil(), .right=alloc.one()}),
+        alloc.create("hello"),
+        alloc.create("hello, world!"),
+        alloc.create("the quick brown fox jumps over the lazy dog"),
+        alloc.create("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
+        alloc.create<Buddy::Tag::CONS, 16>({.left=alloc.nil(), .right=alloc.nil()}),
+        alloc.create_list("hello", "there", "you", "munchkin"),
+        alloc.create_list("primes", 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31),
     };
     alloc.DumpChunks();
+
+    std::cout << "r[] = {";
+    bool first = true;
+    for (auto& x : r) {
+         std::cout << (first ? "" : " ; ") << print(alloc, x);
+         first = false;
+    }
+    std::cout << "}" << std::endl;
 
     auto r2 = alloc.create<Buddy::Tag::CONS, 16>({.left=alloc.bumpref(r[0]), .right=alloc.bumpref(r[1])});
     alloc.DumpChunks();
@@ -134,7 +145,22 @@ int main(void)
     alloc.deref(std::move(r[0]));
     alloc.DumpChunks();
 
+    Buddy::Ref r3 = alloc.nil();
+    for (int i = 0; i < 4000; ++i) {
+        r3 = alloc.create_cons((i % 2 == 0 ? alloc.nil() : alloc.one()), std::move(r3));
+    }
+    std::cout << "r3 = " << print(alloc, r3) << std::endl;
+
     alloc.deref(std::move(r2));
+    alloc.DumpChunks();
+
+    alloc.deref(std::move(r3));
+    alloc.DumpChunks();
+
+    r3 = alloc.create_cons(alloc.one(), alloc.one());
+    alloc.DumpChunks();
+
+    for (auto& x : r) { alloc.deref(std::move(x)); }
     alloc.DumpChunks();
 
     return 0;
