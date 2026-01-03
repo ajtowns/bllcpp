@@ -37,6 +37,13 @@ static std::string HexStr(const Span<const uint8_t> s)
 
 namespace Buddy {
 
+Allocator::Allocator()
+{
+    constexpr std::array<const uint8_t,1> data{{1}};
+    _nilone[0] = create<Tag::INPLACE_ATOM,16>(std::span(data).subspan(0, 0));
+    _nilone[1] = create<Tag::INPLACE_ATOM,16>(std::span(data).subspan(0, 1));
+}
+
 Ref Allocator::TakeFree(Ref ref)
 {
     Ref result = NULLREF;
@@ -99,8 +106,8 @@ Ref Allocator::allocate(AllocShift16 sz)
 void Allocator::deallocate(Ref&& ref)
 {
     Ref r = ref.take();
-    assert(r != _nil);
-    assert(r != _one);
+    assert(r != _nilone[0]);
+    assert(r != _nilone[1]);
     Shift16 sz{TagInfo{GetChunk(r)->data[0]}.size};
     while (sz.sh < 8) {
         Ref buddy = GetBuddy(r, sz);

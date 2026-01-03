@@ -453,11 +453,10 @@ private:
         chunk->data[0] = TagInfo::Allocated(TAG, SIZE).tagbyte();
     }
 
-    Ref _nil{NULLREF};
-    Ref _one{NULLREF};
+    std::array<Ref,2> _nilone = {NULLREF, NULLREF};
 
 public:
-    Allocator() = default;
+    Allocator();
 
     void DumpChunks(std::source_location sloc=std::source_location::current())
     {
@@ -509,19 +508,9 @@ public:
 
     Ref create(Ref&& r) { return r.take(); }
 
-    Ref nil()
-    {
-        std::array<const uint8_t,0> __nil;
-        if (_nil.is_null()) _nil = create<Tag::INPLACE_ATOM,16>({__nil});
-        return bumpref(_nil);
-    }
-
-    Ref one()
-    {
-        std::array<const uint8_t,1> __one{{1}};
-        if (_one.is_null()) _one = create<Tag::INPLACE_ATOM,16>({__one});
-        return bumpref(_one);
-    }
+    Ref create_bool(bool b) { return bumpref(_nilone[b ? 1 : 0]); }
+    Ref nil() { return create_bool(false); }
+    Ref one() { return create_bool(true); }
 
     Ref create_cons(Ref&& left, Ref&& right)
     {
