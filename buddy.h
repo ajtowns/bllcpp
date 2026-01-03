@@ -368,6 +368,17 @@ concept AtomicTagView = IsTagView<T> && requires(const T t) {
 
 static_assert(AtomicTagView<TagView<Tag::EXT_ATOM,16>>);
 
+template<typename T>
+struct quoted_type {
+    T value;
+    explicit quoted_type(T&& v) : value(std::forward<T>(v)) { }
+    explicit quoted_type(const T& v) : value(v) { }
+};
+template<typename T>
+quoted_type(T&&) -> quoted_type<std::decay_t<T>>;
+
+inline constexpr auto quote = [](auto&& v) -> quoted_type<std::decay_t<decltype(v)>> { return quoted_type{std::forward<decltype(v)>(v)}; };
+
 class Allocator
 {
 private:
@@ -489,6 +500,12 @@ public:
     Ref create(std::string_view sv) { return create(MakeUCharSpan(sv)); }
     Ref create(const char* s) { return create(std::span(s, strlen(s))); }
     Ref create(int64_t n);
+
+    template<typename T>
+    Ref create(quoted_type<T> r)
+    {
+        return create_cons(nil(), create(std::move(r.value)));
+    }
 
     Ref create(Ref&& r) { return r.take(); }
 

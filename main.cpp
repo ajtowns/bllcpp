@@ -156,6 +156,8 @@ void test10(Buddy::Allocator& raw_alloc)
     SafeAllocator alloc(raw_alloc);
     alloc.DumpChunks();
 
+    constexpr auto q = Buddy::quote; // short alias for quoting
+
     SafeRef r[] = {
         alloc.cons(alloc.nil(), alloc.one()),
         alloc.create("hello"),
@@ -164,7 +166,7 @@ void test10(Buddy::Allocator& raw_alloc)
         alloc.create("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"),
         alloc.cons(alloc.nil(), alloc.nil()),
         alloc.create_list("hello", "there", "you", "munchkin"),
-        alloc.create_list("primes", 2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31),
+        alloc.create_list("primes", 2, 3, q(5), 7, q(11), 13, 17, 19, 23, 29, 31),
     };
     alloc.DumpChunks();
 
@@ -218,7 +220,7 @@ int main(void)
     std::cout << "======================" << std::endl;
   }
     Buddy::Allocator alloc;
-    //test9(alloc);
+    test9(alloc);
     test10(alloc);
     alloc.DumpChunks();
     return 0;

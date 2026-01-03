@@ -71,11 +71,11 @@ public:
     }
 
     SafeRef create_list() LIFETIMEBOUND { return nil(); }
-    template<typename T1, typename... T>
-    SafeRef create_list(T1&& el1, T&&... args) LIFETIMEBOUND
+    template<typename H, typename... T>
+    SafeRef create_list(H&& h, T&&... args) LIFETIMEBOUND
     {
         SafeRef t = create_list(std::forward<T>(args)...);
-        return cons(this->create(el1), std::move(t));
+        return cons(this->create(std::forward<H>(h)), std::move(t));
     }
 
     SafeRef nil() LIFETIMEBOUND { return make_safe(m_alloc.nil()); }
