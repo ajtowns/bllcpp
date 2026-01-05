@@ -1,0 +1,90 @@
+#include <func.h>
+
+#include <array>
+#include <variant>
+
+namespace {
+struct OpCodeInfo
+{
+    using opcode_type = uint8_t;
+    static constexpr opcode_type BAD_OPCODE{0xFF};
+
+    std::array<opcode_type, Buddy::NUM_Func> ops_Func;
+    std::array<opcode_type, Buddy::NUM_FuncCount> ops_FuncCount;
+    std::array<opcode_type, Buddy::NUM_FuncExt> ops_FuncExt;
+
+    template<typename FE, size_t NUM>
+    static constexpr auto gen_array(const auto& init) {
+        std::array<opcode_type, NUM> res;
+        res.fill(BAD_OPCODE);
+        for (auto [i, op] : init) {
+            if (std::holds_alternative<FE>(op)) {
+                res[static_cast<size_t>(std::get<FE>(op))] = i;
+            }
+        }
+        return res;
+    }
+
+    constexpr OpCodeInfo(const std::initializer_list<std::pair<opcode_type, std::variant<Buddy::Func, Buddy::FuncCount, Buddy::FuncExt>>>& init)
+      : ops_Func{gen_array<Buddy::Func,Buddy::NUM_Func>(init)}
+      , ops_FuncCount{gen_array<Buddy::FuncCount,Buddy::NUM_FuncCount>(init)}
+      , ops_FuncExt{gen_array<Buddy::FuncExt,Buddy::NUM_FuncExt>(init)}
+    {
+    }
+};
+} // anonymous namespace
+
+static constexpr OpCodeInfo OPCODE_INFO{ {
+  { 0, QUOTE },
+  { 1, APPLY },
+  // { 2, SOFTFORK },
+  // { 3, PARTIAL },
+  { 4, OP_X },
+  { 5, OP_IF },
+  { 6, OP_RC },
+  { 7, OP_HEAD },
+  { 8, OP_TAIL },
+  { 9, OP_LIST },
+  // { 10, OP_BINTREE },
+  { 11, OP_NOTALL },
+  { 12, OP_ALL },
+  { 13, OP_ANY },
+  // { 14, OP_EQ },
+  { 15, OP_LT_STR },
+  { 16, OP_STRLEN },
+  { 17, OP_SUBSTR },
+  { 18, OP_CAT },
+  // { 19, OP_NAND_BYTES },
+  // { 20, OP_AND_BYTES },
+  // { 21, OP_OR_BYTES },
+  // { 22, OP_XOR_BYTES },
+  { 23, OP_ADD },
+  // { 24, OP_SUB },
+  // { 25, OP_MUL },
+  // { 26, OP_MOD },
+  // { 27, OP_SHIFT },
+  // { 28, ? },
+  // { 29, ? },
+  // { 30, OP_LT_NUM },
+  // { 31, ? },
+  // { 32, OP_RD },
+  // { 33, OP_WR },
+  // { 34, OP_SHA256 },
+  // { 35, OP_RIPEMD160 },
+  // { 36, OP_HASH160 },
+  // { 37, OP_HASH256 },
+  // { 38, OP_BIP340_VERIFY },
+  // { 39, OP_ECDSA_VERIFY },
+  // { 40, OP_SECP256K1_MULADD },
+  // { 41, OP_TX },
+  // { 42, OP_BIP342_TXMSG },
+
+  // { 0xff, OP_DEEP_EQUAL }, // "===", check structural equality, debug only?
+}};
+
+namespace Buddy {
+int64_t get_opcode(Func f) { return OPCODE_INFO.ops_Func[static_cast<size_t>(f)]; }
+int64_t get_opcode(FuncCount f) { return OPCODE_INFO.ops_FuncCount[static_cast<size_t>(f)]; }
+int64_t get_opcode(FuncExt f) { return OPCODE_INFO.ops_FuncExt[static_cast<size_t>(f)]; }
+}
+

@@ -40,7 +40,7 @@ struct Continuation
 class Program
 {
 public:
-    Buddy::Allocator& m_alloc;
+    SafeAllocator& m_alloc;
 
 private:
     static constexpr auto NULLREF = Buddy::NULLREF;
@@ -55,12 +55,12 @@ private:
     // std::vector<CTxOut> spent_coins;
     //   -- no access to Coin's fCoinbase or nHeight?
 
-    Buddy::Ref pop_feedback()
+    [[nodiscard]] Buddy::Ref pop_feedback()
     {
         return m_feedback.take();
     }
 
-    Continuation pop_continuation()
+    [[nodiscard]] Continuation pop_continuation()
     {
         Continuation c{std::move(m_continuations.back())};
         m_continuations.pop_back();
@@ -70,7 +70,7 @@ private:
 
 public:
     template<typename T> struct Logic;
-    explicit Program(Buddy::Allocator& alloc LIFETIMEBOUND, Buddy::Ref&& sexpr, Buddy::Ref&& env)
+    explicit Program(SafeAllocator& alloc LIFETIMEBOUND, Buddy::Ref&& sexpr, Buddy::Ref&& env)
         : m_alloc{alloc}, m_feedback{NULLREF}
     {
         m_continuations.reserve(1024);
@@ -98,14 +98,6 @@ public:
         m_continuations.emplace_back(func.take(), env.take());
     }
 
-#if 0
-XXX
-    void new_continuation(Func::Func fn, Buddy::Ref&& env)
-    {
-        new_continuation(arena.mkfn(fn), env.take());
-    }
-#endif
-
     void fin_value(Buddy::Ref&& val)
     {
         assert(m_feedback.is_null());
@@ -114,7 +106,7 @@ XXX
 
     void error(std::source_location sloc=std::source_location::current())
     {
-        fin_value(m_alloc.create_error(sloc));
+        fin_value(m_alloc.Allocator().create_error(sloc));
     }
 
     void eval_sexpr(Buddy::Ref&& sexpr, Buddy::Ref&& env);

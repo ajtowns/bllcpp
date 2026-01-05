@@ -1,9 +1,11 @@
 #ifndef FUNC_H
 #define FUNC_H
 
+#include <cstddef>
+#include <cstdint>
+
 namespace Buddy {
 enum class Func : uint16_t {
-    BLLEVAL,
     QUOTE,
     // PARTIAL,
     OP_X,
@@ -25,7 +27,10 @@ enum class Func : uint16_t {
     // OP_MUL,
     // OP_LT_NUM,
     // OP_TX,
+    BLLEVAL,
 };
+inline constexpr size_t NUM_Func{11};
+
 enum class FuncCount : uint16_t {
     APPLY,
     // SOFTFORK,
@@ -42,13 +47,25 @@ enum class FuncCount : uint16_t {
     // OP_ECDSA_VERIFY,
     // OP_BIP342_TXMSG,
 };
+inline constexpr size_t NUM_FuncCount{6};
+
 enum class FuncExt : uint8_t {
-    // OP_SHA256,
+    OP_SHA256,
     // OP_RIPEMD160,
     // OP_HASH160,
     // OP_HASH256,
     // OP_SECP256K1_MULADD,
 };
+inline constexpr size_t NUM_FuncExt{1};
+
+int64_t get_opcode(Func f);
+int64_t get_opcode(FuncCount f);
+int64_t get_opcode(FuncExt f);
+
 } // Buddy namespace
+
+using enum Buddy::Func;
+using enum Buddy::FuncCount;
+using enum Buddy::FuncExt;
 
 #endif // FUNC_H

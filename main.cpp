@@ -5,6 +5,7 @@
 #include <elconcept.h>
 #include <elimpl.h>
 #include <execution.h>
+#include <func.h>
 
 #include <logging.h>
 
@@ -48,11 +49,11 @@ void dump_cont(const Execution::Program& wi)
 {
     Buddy::Ref fb = wi.inspect_feedback();
     if (!fb.is_null()) {
-        std::cout << "FB: " << Buddy::to_string(wi.m_alloc, fb) << std::endl;
+        std::cout << "FB: " << Buddy::to_string(wi.m_alloc.Allocator(), fb) << std::endl;
     }
     auto& cs = wi.inspect_continuations();
     for (auto& c : cs | std::views::reverse) {
-        std::cout << Buddy::to_string(wi.m_alloc, c.func) << " " << Buddy::to_string(wi.m_alloc, c.args) << std::endl;
+        std::cout << Buddy::to_string(wi.m_alloc.Allocator(), c.func) << " " << Buddy::to_string(wi.m_alloc.Allocator(), c.args) << std::endl;
     }
     std::cout << "---" << std::endl;
 }
@@ -192,6 +193,7 @@ void test10(Buddy::Allocator& raw_alloc)
         alloc.cons(alloc.nil(), alloc.nil()),
         alloc.create_list("hello", "there", "you", "munchkin"),
         alloc.create_list("primes", 2, 3, q(5), 7, q(11), 13, 17, 19, 23, 29, 31),
+        alloc.create_list(OP_ADD, q(1), q(2), q(3)),
     };
     alloc.DumpChunks();
 

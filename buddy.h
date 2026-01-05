@@ -230,6 +230,12 @@ enum class Func : uint16_t;
 enum class FuncCount : uint16_t;
 enum class FuncExt : uint8_t;
 
+template<typename T>
+concept FuncEnum =
+    std::is_same_v<T, Func> ||
+    std::is_same_v<T, FuncCount> ||
+    std::is_same_v<T, FuncExt>;
+
 template<Tag TAG, size_t SIZE>
 struct TagView;
 
@@ -311,29 +317,35 @@ static_assert(sizeof(TagView<Tag::ERROR, 16>) == 16);
 template<>
 struct TagView<Tag::FUNC, 16> : public TagRefCount
 {
-    Func funcid;
+    using FuncEnumType = Func;
+
+    FuncEnumType funcid;
     ShortRef env;
     ShortRef state;
-    std::array<uint8_t, 4> extra_state;
+    std::array<uint8_t, 4> extra_state{0,0,0,0};
 };
 static_assert(sizeof(TagView<Tag::FUNC, 16>) == 16);
 
 template<>
 struct TagView<Tag::FUNC_COUNT, 16> : public TagRefCount
 {
-    FuncCount funcid;
+    using FuncEnumType = FuncCount;
+
+    FuncEnumType funcid;
     ShortRef env;
     ShortRef state;
-    uint32_t counter;
+    uint32_t counter{0};
 };
 static_assert(sizeof(TagView<Tag::FUNC_COUNT, 16>) == 16);
 
 template<>
 struct TagView<Tag::FUNC_EXT, 16> : public TagRefCount
 {
-    FuncExt funcid;
+    using FuncEnumType = FuncExt;
+
+    FuncEnumType funcid;
     ShortRef env;
-    const void* state;
+    const void* state{nullptr};
 };
 static_assert(sizeof(TagView<Tag::FUNC_EXT, 16>) == 16);
 
@@ -362,11 +374,15 @@ template<Tag TAG, size_t SIZE>
 inline constexpr bool IsTagView<TagView<TAG,SIZE>> = true;
 
 template<typename T>
-concept AtomicTagView = IsTagView<T> && requires(const T t) {
+concept AtomicTagView = IsTagView<T> && requires(const T& t) {
     { t.span() } -> std::same_as<std::span<const uint8_t>>;
 };
-
 static_assert(AtomicTagView<TagView<Tag::EXT_ATOM,16>>);
+
+template<typename T>
+concept FuncyTagView = IsTagView<T> && FuncEnum<typename T::FuncEnumType> &&
+    std::same_as<typename T::FuncEnumType, decltype(T::funcid)>;
+static_assert(FuncyTagView<TagView<Tag::FUNC,16>>);
 
 template<typename T>
 struct quoted_type {
@@ -500,6 +516,8 @@ public:
     Ref create(const char* s) { return create(std::span(s, strlen(s))); }
     Ref create(int64_t n);
 
+    Ref create(FuncEnum auto func) { return create(get_opcode(func)); }
+
     template<typename T>
     Ref create(quoted_type<T> r)
     {
@@ -562,6 +580,16 @@ public:
         dispatch(ref, util::Overloaded(
             [&]<size_t SIZE>(const TagView<Tag::NOREFCOUNT,SIZE>&) { res = 1; },
             [&](const TagRefCount& trc) { res = trc.refcount.read(); }
+        ));
+        return res;
+    }
+
+    bool is_error(Ref ref)
+    {
+        bool res{false};
+        dispatch(ref, util::Overloaded(
+            [&](const TagView<Tag::ERROR,16>&) { res = true; },
+            [](const auto&) { }
         ));
         return res;
     }
