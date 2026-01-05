@@ -3,6 +3,7 @@
 
 #include <buddy.h>
 #include <saferef.h>
+#include <func.h>
 
 #include <logging.h>
 
