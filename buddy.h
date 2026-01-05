@@ -524,6 +524,11 @@ public:
         return create_cons(this->create(std::forward<T1>(el1)), std::move(t));
     }
 
+    Ref create_error(std::source_location sloc=std::source_location::current())
+    {
+        return create<Tag::ERROR,16>({.line=sloc.line(), .filename=sloc.file_name()});
+    }
+
     Ref bumpref(Ref& ref)
     {
         Ref res{NULLREF};

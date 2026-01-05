@@ -4,6 +4,7 @@
 #include <workitem.h>
 #include <elconcept.h>
 #include <elimpl.h>
+#include <execution.h>
 
 #include <logging.h>
 
@@ -43,7 +44,31 @@ void dump_cont(const WorkItem& wi)
     std::cout << "---" << std::endl;
 }
 
+void dump_cont(const Execution::Program& wi)
+{
+    Buddy::Ref fb = wi.inspect_feedback();
+    if (!fb.is_null()) {
+        std::cout << "FB: " << Buddy::to_string(wi.m_alloc, fb) << std::endl;
+    }
+    auto& cs = wi.inspect_continuations();
+    for (auto& c : cs | std::views::reverse) {
+        std::cout << Buddy::to_string(wi.m_alloc, c.func) << " " << Buddy::to_string(wi.m_alloc, c.args) << std::endl;
+    }
+    std::cout << "---" << std::endl;
+}
+
 void run(WorkItem& wi)
+{
+    std::cout << "START" << std::endl;
+    dump_cont(wi);
+    while (!wi.finished()) {
+        wi.step();
+        dump_cont(wi);
+    }
+    std::cout << "END" << std::endl;
+}
+
+void run(Execution::Program& wi)
 {
     std::cout << "START" << std::endl;
     dump_cont(wi);
