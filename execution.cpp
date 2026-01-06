@@ -21,29 +21,32 @@ template<Buddy::FuncEnum FE> struct StepParams;
 
 template<> struct StepParams<Func> {
     Program& program;
+    SafeView func;
     Func funcid;
     SafeView state;
     SafeView env;
-    SafeRef fb;
+    SafeRef feedback;
     SafeRef args;
 };
 
 template<> struct StepParams<FuncCount> {
     Program& program;
+    SafeView func;
     FuncCount funcid;
     SafeView state;
     uint32_t counter;
     SafeView env;
-    SafeRef fb;
+    SafeRef feedback;
     SafeRef args;
 };
 
 template<> struct StepParams<FuncExt> {
     Program& program;
+    SafeView func;
     FuncExt funcid;
     const void* state;
     SafeView env;
-    SafeRef fb;
+    SafeRef feedback;
     SafeRef args;
 };
 
@@ -51,11 +54,78 @@ template<auto FUNC> struct FuncDispatch;
 
 template<>
 struct FuncDispatch<QUOTE> {
-    static void step(StepParams<Func>& params) {
+    static void step(StepParams<Func>& params)
+    {
         params.program.fin_value(params.args.take());
     }
 
     SafeRef default_state(Program& program) { return program.m_alloc.nullref(); }
+};
+
+static bool blleval_helper(auto& params)
+{
+    // shouldn't call this function if there's feedback
+    assert(params.feedback.is_null());
+    bool res = true;
+    params.args.dispatch(util::Overloaded(
+        [&]<Buddy::AtomicTagView ATV>(const ATV& atom) {
+            if (atom.span().size() != 0) {
+                res = false;
+            } else {
+                params.program.error();
+            }
+        },
+        [&](const Buddy::TagView<Buddy::Tag::CONS,16>& cons) {
+            params.program.new_continuation(
+                 params.func.copy().take(),
+                 cons.right);
+            params.program.new_continuation(
+                 params.program.m_alloc.Allocator().create_func(
+                     BLLEVAL, params.env.copy().take(), Buddy::NULLREF),
+                 cons.left);
+            res = true;
+        },
+        [&](const auto&) {
+            params.program.error();
+            res = true;
+        }
+    ));
+    return res;
+}
+
+template<>
+struct FuncDispatch<OP_ADD> {
+    static void step(StepParams<Func>& params)
+    {
+        if (params.feedback.is_null()) {
+            if (!blleval_helper(params)) {
+                params.program.fin_value(params.state.copy().take()); // finish()
+            }
+            return;
+        }
+
+        auto s = SafeConv::ConvertRef<int64_t>::FromView(params.state);
+        if (!s) return params.program.error();
+        auto a = SafeConv::ConvertRef<int64_t>::FromRef(std::move(params.feedback));
+        if (!a) return params.program.error();
+        SafeRef r = binop(params.program, s->value(), a->value());
+        if (r.is_null()) return; // error
+        params.program.new_continuation(
+            params.program.m_alloc.Allocator().create_func(
+                params.funcid, params.env.copy().take(), r.take()),
+            params.args.take());
+    }
+
+    static SafeRef binop(Program& program, int64_t state, int64_t arg)
+    {
+        if ((arg >= 0 && std::numeric_limits<int64_t>::max() - arg >= state)
+            || (arg < 0 && std::numeric_limits<int64_t>::min() - arg >= state)) {
+            return program.m_alloc.create(state + arg);
+        } else {
+            program.m_alloc.error();
+            return program.m_alloc.nullref();
+        }
+    }
 };
 
 template<auto FUNC> requires std::same_as<decltype(FUNC), Buddy::Func>
@@ -118,14 +188,9 @@ template<> struct FuncEnumDispatch<Buddy::FuncExt> {
     }
 };
 
-void Program::eval_sexpr(Ref&& sexpr, Ref&& env)
+Buddy::Ref Program::create_bll_func(Buddy::Ref&& env)
 {
-    Ref func = m_alloc.Allocator().create<Buddy::Tag::FUNC,16>({
-      .funcid = BLLEVAL,
-      .env = env.take(),
-      .state = NULLREF,
-    });
-    new_continuation(func.take(), sexpr.take());
+    return m_alloc.Allocator().create_func(BLLEVAL, env.take(), NULLREF);
 }
 
 void Program::step()
@@ -134,15 +199,15 @@ void Program::step()
 
     Buddy::Allocator& rawalloc = m_alloc.Allocator();
 
-    Ref fb{pop_feedback()};
-    if (rawalloc.is_error(fb)) {
+    Ref feedback{pop_feedback()};
+    if (rawalloc.is_error(feedback)) {
          // shortcut
          while (!m_continuations.empty()) {
               Continuation c{pop_continuation()};
               rawalloc.deref(c.func.take());
               rawalloc.deref(c.args.take());
          }
-         fin_value(fb.take());
+         fin_value(feedback.take());
          return;
     }
 
@@ -152,39 +217,42 @@ void Program::step()
     Ref func{cont.func.take()}; // funcid, state, environment
 
     rawalloc.dispatch(func, util::Overloaded(
-        [&](const Buddy::TagView<Buddy::Tag::FUNC,16>& func) {
+        [&](const Buddy::TagView<Buddy::Tag::FUNC,16>& f) {
             FuncEnumDispatch<Func>::step({
                 .program=*this,
-                .funcid=func.funcid,
-                .state=m_alloc.view(func.state),
-                .env=m_alloc.view(func.env),
-                .fb=m_alloc.takeref(fb.take()),
+                .func=m_alloc.view(func),
+                .funcid=f.funcid,
+                .state=m_alloc.view(f.state),
+                .env=m_alloc.view(f.env),
+                .feedback=m_alloc.takeref(feedback.take()),
                 .args=m_alloc.takeref(args.take()),
             });
         },
-        [&](const Buddy::TagView<Buddy::Tag::FUNC_COUNT,16>& funccnt) {
+        [&](const Buddy::TagView<Buddy::Tag::FUNC_COUNT,16>& f) {
             FuncEnumDispatch<FuncCount>::step({
                 .program=*this,
-                .funcid=funccnt.funcid,
-                .state=m_alloc.view(funccnt.state),
-                .counter=funccnt.counter,
-                .env=m_alloc.view(funccnt.env),
-                .fb=m_alloc.takeref(fb.take()),
+                .func=m_alloc.view(func),
+                .funcid=f.funcid,
+                .state=m_alloc.view(f.state),
+                .counter=f.counter,
+                .env=m_alloc.view(f.env),
+                .feedback=m_alloc.takeref(feedback.take()),
                 .args=m_alloc.takeref(args.take()),
             });
         },
-        [&](const Buddy::TagView<Buddy::Tag::FUNC_EXT,16>& funcext) {
+        [&](const Buddy::TagView<Buddy::Tag::FUNC_EXT,16>& f) {
             FuncEnumDispatch<FuncExt>::step({
                 .program=*this,
-                .funcid=funcext.funcid,
-                .state=funcext.state,
-                .env=m_alloc.view(funcext.env),
-                .fb=m_alloc.takeref(fb.take()),
+                .func=m_alloc.view(func),
+                .funcid=f.funcid,
+                .state=f.state,
+                .env=m_alloc.view(f.env),
+                .feedback=m_alloc.takeref(feedback.take()),
                 .args=m_alloc.takeref(args.take()),
             });
         },
         [&](const auto&) {
-            rawalloc.deref(fb.take());
+            rawalloc.deref(feedback.take());
             rawalloc.deref(args.take());
             error();
         }

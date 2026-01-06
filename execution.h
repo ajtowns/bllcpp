@@ -93,9 +93,11 @@ public:
         return m_continuations;
     }
 
-    void new_continuation(Buddy::Ref&& func, Buddy::Ref&& env)
+    Buddy::Ref create_bll_func(Buddy::Ref&& env);
+
+    void new_continuation(Buddy::Ref&& func, Buddy::Ref&& args)
     {
-        m_continuations.emplace_back(func.take(), env.take());
+        m_continuations.emplace_back(func.take(), args.take());
     }
 
     void fin_value(Buddy::Ref&& val)
@@ -109,7 +111,10 @@ public:
         fin_value(m_alloc.Allocator().create_error(sloc));
     }
 
-    void eval_sexpr(Buddy::Ref&& sexpr, Buddy::Ref&& env);
+    void eval_sexpr(Buddy::Ref&& sexpr, Buddy::Ref&& env)
+    {
+        new_continuation(create_bll_func(env.take()), sexpr.take());
+    }
 
     void step();
 

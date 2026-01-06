@@ -542,6 +542,34 @@ public:
         return create_cons(this->create(std::forward<T1>(el1)), std::move(t));
     }
 
+    Ref create_func(Func funcid, Ref&& env, Ref&& state)
+    {
+        return create<Buddy::Tag::FUNC,16>({
+            .funcid = funcid,
+            .env = env.take(),
+            .state = state.take(),
+        });
+    }
+
+    Ref create_func(FuncCount funcid, Ref&& env, Ref&& state, uint32_t counter=0)
+    {
+        return create<Buddy::Tag::FUNC_COUNT,16>({
+            .funcid = funcid,
+            .env = env.take(),
+            .state = state.take(),
+            .counter = counter,
+        });
+    }
+
+    Ref create_func(FuncExt funcid, Ref&& env, const void* state)
+    {
+        return create<Buddy::Tag::FUNC_EXT,16>({
+            .funcid = funcid,
+            .env = env.take(),
+            .state = state,
+        });
+    }
+
     Ref create_error(std::source_location sloc=std::source_location::current())
     {
         return create<Tag::ERROR,16>({.line=sloc.line(), .filename=sloc.file_name()});

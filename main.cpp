@@ -230,7 +230,6 @@ void test10(Buddy::Allocator& raw_alloc)
     alloc.DumpChunks();
 }
 
-
 int main(void)
 {
   {
