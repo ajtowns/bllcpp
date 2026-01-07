@@ -11,14 +11,11 @@
 #include <memory>
 #include <optional>
 
-using Ref = Buddy::Ref;
-using Func = Buddy::Func;
-using FuncCount = Buddy::FuncCount;
-using FuncExt = Buddy::FuncExt;
+using namespace Buddy;
 
 namespace Execution {
 
-template<Buddy::FuncEnum FE> struct StepParams;
+template<FuncEnum FE> struct StepParams;
 
 template<> struct StepParams<Func> {
     Program& program;
@@ -70,14 +67,14 @@ static bool blleval_helper(auto& params)
     bool res = true;
     // XXX this should be convert<..>() instead of dispatch?
     params.args.dispatch(util::Overloaded(
-        [&]<Buddy::AtomicTagView ATV>(const ATV& atom) {
+        [&]<AtomicTagView ATV>(const ATV& atom) {
             if (atom.span().size() != 0) {
                 res = false;
             } else {
                 params.program.error();
             }
         },
-        [&](const Buddy::TagView<Buddy::Tag::CONS,16>& cons) {
+        [&](const TagView<Tag::CONS,16>& cons) {
             params.program.new_continuation(
                  params.func.copy(),
                  params.program.m_alloc.view(cons.right).copy());
@@ -136,12 +133,12 @@ struct FuncDispatch<BLLEVAL> {
             auto [l, r] = std::move(c->value());
             if (auto op = l.convert<int64_t>(); op) {
                 std::visit(util::Overloaded(
-                    [&](Buddy::FuncEnum auto funcid) {
+                    [&](FuncEnum auto funcid) {
                         params.program.new_continuation(funcid, params.env.copy(), std::move(r));
                     },
                     [&](const std::monostate&) {
                         return params.program.error(); // invalid opcode
-                    }), Buddy::lookup_opcode(op->value()));
+                    }), lookup_opcode(op->value()));
             } else {
                 return params.program.error(); // atom way too big to be an opcode
             }
@@ -186,32 +183,32 @@ struct FuncDispatch<OP_ADD> {
     }
 };
 
-template<auto FUNC> requires std::same_as<decltype(FUNC), Buddy::Func>
+template<auto FUNC> requires std::same_as<decltype(FUNC), Func>
 struct FuncDispatch<FUNC> {
     static void step(StepParams<Func>& ) { return; }
 };
 
-template<auto FUNCCNT> requires std::same_as<decltype(FUNCCNT), Buddy::FuncCount>
+template<auto FUNCCNT> requires std::same_as<decltype(FUNCCNT), FuncCount>
 struct FuncDispatch<FUNCCNT> {
     static void step(StepParams<FuncCount>& ) { return; }
 };
 
-template<auto FUNCEXT> requires std::same_as<decltype(FUNCEXT), Buddy::FuncExt>
+template<auto FUNCEXT> requires std::same_as<decltype(FUNCEXT), FuncExt>
 struct FuncDispatch<FUNCEXT> {
     static void step(StepParams<FuncExt>& ) { return; }
 };
 
-template<Buddy::FuncEnum FE>
+template<FuncEnum FE>
 struct NUM;
 
 template<>
-struct NUM<Buddy::Func> { static constexpr size_t value{Buddy::NUM_Func}; };
+struct NUM<Func> { static constexpr size_t value{NUM_Func}; };
 template<>
-struct NUM<Buddy::FuncCount> { static constexpr size_t value{Buddy::NUM_FuncCount}; };
+struct NUM<FuncCount> { static constexpr size_t value{NUM_FuncCount}; };
 template<>
-struct NUM<Buddy::FuncExt> { static constexpr size_t value{Buddy::NUM_FuncExt}; };
+struct NUM<FuncExt> { static constexpr size_t value{NUM_FuncExt}; };
 
-template<Buddy::FuncEnum FE>
+template<FuncEnum FE>
 struct FuncEnumDispatch {
     template<size_t I=0>
     static void step(StepParams<FE>&& params)
@@ -230,7 +227,7 @@ static SafeRef default_func(const auto& func, SafeRef&& env)
 {
     return std::visit(util::Overloaded(
         [&](const std::monostate&) { return env.Allocator().nullref(); },
-        [&](Buddy::FuncEnum auto funcid) {
+        [&](FuncEnum auto funcid) {
             return FuncEnumDispatch<decltype(funcid)>::default_func(funcid, std::move(env));
         }), func);
 }
@@ -239,7 +236,7 @@ void Program::step()
 {
     if (m_continuations.empty()) return; // nothing to do
 
-    Buddy::Allocator& rawalloc = m_alloc.Allocator();
+    Allocator& rawalloc = m_alloc.Allocator();
 
     Ref feedback{pop_feedback()};
     if (rawalloc.is_error(feedback)) {
@@ -259,7 +256,7 @@ void Program::step()
     Ref func{cont.func.take()}; // funcid, state, environment
 
     rawalloc.dispatch(func, util::Overloaded(
-        [&](const Buddy::TagView<Buddy::Tag::FUNC,16>& f) {
+        [&](const TagView<Tag::FUNC,16>& f) {
             FuncEnumDispatch<Func>::step({
                 .program=*this,
                 .func=m_alloc.view(func),
@@ -270,7 +267,7 @@ void Program::step()
                 .args=m_alloc.takeref(args.take()),
             });
         },
-        [&](const Buddy::TagView<Buddy::Tag::FUNC_COUNT,16>& f) {
+        [&](const TagView<Tag::FUNC_COUNT,16>& f) {
             FuncEnumDispatch<FuncCount>::step({
                 .program=*this,
                 .func=m_alloc.view(func),
@@ -282,7 +279,7 @@ void Program::step()
                 .args=m_alloc.takeref(args.take()),
             });
         },
-        [&](const Buddy::TagView<Buddy::Tag::FUNC_EXT,16>& f) {
+        [&](const TagView<Tag::FUNC_EXT,16>& f) {
             FuncEnumDispatch<FuncExt>::step({
                 .program=*this,
                 .func=m_alloc.view(func),
