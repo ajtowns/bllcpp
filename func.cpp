@@ -15,15 +15,15 @@ struct OpCodeInfo
     using opcode_type = uint8_t;
     static constexpr opcode_type BAD_OPCODE{0xFF};
 
-    std::array<opcode_type, NUM_Func> ops_Func;
-    std::array<opcode_type, NUM_FuncCount> ops_FuncCount;
-    std::array<opcode_type, NUM_FuncExt> ops_FuncExt;
+    std::array<opcode_type, FuncEnumSize<Func>> ops_Func;
+    std::array<opcode_type, FuncEnumSize<FuncCount>> ops_FuncCount;
+    std::array<opcode_type, FuncEnumSize<FuncExt>> ops_FuncExt;
 
     std::array<FuncVariant, 256> op_funcs;
 
-    template<typename FE, size_t NUM>
+    template<typename FE>
     static constexpr auto gen_array(const auto& init) {
-        std::array<opcode_type, NUM> res;
+        std::array<opcode_type, FuncEnumSize<FE>> res;
         res.fill(BAD_OPCODE);
         for (auto [i, op] : init) {
             if (std::holds_alternative<FE>(op)) {
@@ -50,12 +50,31 @@ struct OpCodeInfo
         return res;
     }
 
+    constexpr int64_t get_opcode(Func f) const { return ops_Func[static_cast<size_t>(f)]; }
+    constexpr int64_t get_opcode(FuncCount f) const { return ops_FuncCount[static_cast<size_t>(f)]; }
+    constexpr int64_t get_opcode(FuncExt f) const { return ops_FuncExt[static_cast<size_t>(f)]; }
+
     constexpr OpCodeInfo(const std::initializer_list<std::pair<opcode_type, FuncVariant>>& init)
-      : ops_Func{gen_array<Func,NUM_Func>(init)}
-      , ops_FuncCount{gen_array<FuncCount,NUM_FuncCount>(init)}
-      , ops_FuncExt{gen_array<FuncExt,NUM_FuncExt>(init)}
+      : ops_Func{gen_array<Func>(init)}
+      , ops_FuncCount{gen_array<FuncCount>(init)}
+      , ops_FuncExt{gen_array<FuncExt>(init)}
       , op_funcs{gen_opfuncs(init)}
     {
+    }
+
+    template<FuncEnum... FE>
+    constexpr bool HasNoOpcode(FE... funcid) const
+    {
+        return ((this->get_opcode(funcid) == BAD_OPCODE) && ...);
+    }
+
+    constexpr size_t NumNoOpcode() const
+    {
+        size_t r{0};
+        for (auto v : ops_Func) if (v == BAD_OPCODE) ++r;
+        for (auto v : ops_FuncCount) if (v == BAD_OPCODE) ++r;
+        for (auto v : ops_FuncExt) if (v == BAD_OPCODE) ++r;
+        return r;
     }
 };
 } // anonymous namespace
@@ -107,6 +126,8 @@ static constexpr OpCodeInfo OPCODE_INFO{ {
 
   // { 0xff, OP_DEEP_EQUAL }, // "===", check structural equality, debug only?
 }};
+static_assert(OPCODE_INFO.HasNoOpcode(BLLEVAL));
+static_assert(OPCODE_INFO.NumNoOpcode() == 1);
 
 namespace Buddy {
 

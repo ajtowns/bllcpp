@@ -48,16 +48,6 @@ template<> struct StepParams<FuncExt> {
     SafeRef args;
 };
 
-template<auto FUNC> struct FuncDispatch;
-
-template<>
-struct FuncDispatch<QUOTE> {
-    static void step(StepParams<Func>& params)
-    {
-        params.program.fin_value(std::move(params.args));
-    }
-};
-
 static bool blleval_helper(auto& params)
 {
     // shouldn't call this function if there's feedback
@@ -89,11 +79,12 @@ static bool blleval_helper(auto& params)
     return res;
 }
 
-SafeRef Program::getenv(SafeView env, int64_t env_index)
+static SafeRef getenv(SafeView env, int64_t env_index)
 {
-    SafeRef res{m_alloc.nullref()};
+    SafeAllocator& alloc = env.Allocator();
+    SafeRef res{alloc.nullref()};
     if (env_index <= 0) {
-        res = m_alloc.nil();
+        res = alloc.nil();
     } else {
         while (env_index > 1) {
             auto lr = env.convert<std::pair<SafeView, SafeView>>();
@@ -109,7 +100,15 @@ SafeRef Program::getenv(SafeView env, int64_t env_index)
     return res;
 }
 
+template<auto FUNC> struct FuncDispatch;
 
+template<>
+struct FuncDispatch<QUOTE> {
+    static void step(StepParams<Func>& params)
+    {
+        params.program.fin_value(std::move(params.args));
+    }
+};
 
 template<>
 struct FuncDispatch<BLLEVAL> {
@@ -121,7 +120,7 @@ struct FuncDispatch<BLLEVAL> {
             if (env_index == 0) {
                 return params.program.fin_value(params.program.m_alloc.nil());
             } else if (env_index > 0) {
-                auto env = params.program.getenv(params.env, env_index);
+                auto env = getenv(params.env, env_index);
                 if (env.is_null()) return params.program.error();
                 return params.program.fin_value(env.copy());
             } else {
@@ -197,21 +196,11 @@ struct FuncDispatch<FUNCEXT> {
 };
 
 template<FuncEnum FE>
-struct NUM;
-
-template<>
-struct NUM<Func> { static constexpr size_t value{NUM_Func}; };
-template<>
-struct NUM<FuncCount> { static constexpr size_t value{NUM_FuncCount}; };
-template<>
-struct NUM<FuncExt> { static constexpr size_t value{NUM_FuncExt}; };
-
-template<FuncEnum FE>
 struct FuncEnumDispatch {
     template<size_t I=0>
     static void step(StepParams<FE>&& params)
     {
-        if constexpr (I < NUM<FE>::value) {
+        if constexpr (I < FuncEnumSize<FE>) {
             constexpr auto F = static_cast<FE>(I);
             if (params.funcid == F) {
                 return FuncDispatch<F>::step(params);

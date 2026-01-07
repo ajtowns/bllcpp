@@ -1,6 +1,7 @@
 #ifndef BUDDY_H
 #define BUDDY_H
 
+#include <func.h>
 #include <logging.h>
 #include <overloaded.h>
 #include <tinyformat.h>
@@ -229,12 +230,6 @@ static_assert(ShortRef{NULLREF}.get_value() == 0xFFFFFF);
 enum class Func : uint16_t;
 enum class FuncCount : uint16_t;
 enum class FuncExt : uint8_t;
-
-template<typename T>
-concept FuncEnum =
-    std::is_same_v<T, Func> ||
-    std::is_same_v<T, FuncCount> ||
-    std::is_same_v<T, FuncExt>;
 
 template<Tag TAG, size_t SIZE>
 struct TagView;

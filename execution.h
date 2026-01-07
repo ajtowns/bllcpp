@@ -120,8 +120,6 @@ public:
         new_continuation(BLLEVAL, std::move(env), std::move(sexpr));
     }
 
-    SafeRef getenv(SafeView env, int64_t env_index);
-
     void step();
 
     bool finished() { return m_continuations.empty(); }

@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
+#include <type_traits>
 #include <variant>
 
 namespace Buddy {
@@ -31,7 +32,6 @@ enum class Func : uint16_t {
     // OP_TX,
     BLLEVAL, // internal only
 };
-inline constexpr size_t NUM_Func{11};
 
 enum class FuncCount : uint16_t {
     APPLY,
@@ -49,7 +49,6 @@ enum class FuncCount : uint16_t {
     // OP_ECDSA_VERIFY,
     // OP_BIP342_TXMSG,
 };
-inline constexpr size_t NUM_FuncCount{6};
 
 enum class FuncExt : uint8_t {
     OP_SHA256,
@@ -58,7 +57,20 @@ enum class FuncExt : uint8_t {
     // OP_HASH256,
     // OP_SECP256K1_MULADD,
 };
-inline constexpr size_t NUM_FuncExt{1};
+
+template<typename T>
+concept FuncEnum =
+    std::is_same_v<T, Func> ||
+    std::is_same_v<T, FuncCount> ||
+    std::is_same_v<T, FuncExt>;
+
+template<FuncEnum FE> struct FuncEnum_help;
+template<> struct FuncEnum_help<Func> { static constexpr size_t value = 11; };
+template<> struct FuncEnum_help<FuncCount> { static constexpr size_t value = 6; };
+template<> struct FuncEnum_help<FuncExt> { static constexpr size_t value = 1; };
+
+template<FuncEnum FE>
+inline constexpr size_t FuncEnumSize{FuncEnum_help<FE>::value};
 
 int64_t get_opcode(Func f);
 int64_t get_opcode(FuncCount f);
