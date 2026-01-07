@@ -48,10 +48,8 @@ void dump_cont(const WorkItem& wi)
 void dump_cont(const Execution::Program& wi)
 {
     SafeView fb = wi.inspect_feedback();
-    if (!fb.is_null()) {
-        std::cout << "FB: " << fb.to_string() << std::endl;
-    }
     auto& cs = wi.inspect_continuations();
+    std::cout << strprintf("Conts: %d ; FB: %s", cs.size(), fb.is_null() ? "-null-" : fb.to_string()) << std::endl;
     for (auto& c : cs | std::views::reverse) {
         std::cout << Buddy::to_string(wi.m_alloc.Allocator(), c.func) << " " << Buddy::to_string(wi.m_alloc.Allocator(), c.args) << std::endl;
     }
@@ -60,7 +58,7 @@ void dump_cont(const Execution::Program& wi)
 
 void run(WorkItem& wi)
 {
-    std::cout << "START" << std::endl;
+    std::cout << "START workitem" << std::endl;
     dump_cont(wi);
     while (!wi.finished()) {
         wi.step();
@@ -69,13 +67,13 @@ void run(WorkItem& wi)
     std::cout << "END" << std::endl;
 }
 
-void run(Execution::Program& wi)
+void run(Execution::Program& program)
 {
-    std::cout << "START" << std::endl;
-    dump_cont(wi);
-    while (!wi.finished()) {
-        wi.step();
-        dump_cont(wi);
+    std::cout << "START program" << std::endl;
+    dump_cont(program);
+    while (!program.finished()) {
+        program.step();
+        dump_cont(program);
     }
     std::cout << "END" << std::endl;
 }
@@ -230,6 +228,21 @@ void test10(Buddy::Allocator& raw_alloc)
     alloc.DumpChunks();
 }
 
+void test11(Buddy::Allocator& raw_alloc)
+{
+    SafeAllocator alloc(raw_alloc);
+    alloc.DumpChunks();
+
+    constexpr auto q = Buddy::quote; // short alias for quoting
+
+    SafeRef sexpr = alloc.create_list(OP_ADD, q(1), q(2), q(3));
+    SafeRef env = alloc.nil();
+
+    std::cout << "test11 sexpr=" << sexpr.to_string() << "; env=" << env.to_string() << std::endl;
+    Execution::Program p{alloc, std::move(sexpr), std::move(env)};
+    run(p);
+}
+
 int main(void)
 {
   {
@@ -248,6 +261,7 @@ int main(void)
     Buddy::Allocator alloc;
     test9(alloc);
     test10(alloc);
+    test11(alloc);
     alloc.DumpChunks();
     return 0;
 }

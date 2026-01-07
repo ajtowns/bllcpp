@@ -637,6 +637,8 @@ public:
     {
         using enum Tag;
 
+        if (ref.is_null()) return;
+
         Chunk* chunk = GetChunk(ref);
         auto tag = chunk->taginfo();
         if (tag.free || !tag.tag) return;

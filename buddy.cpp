@@ -255,9 +255,9 @@ std::string to_string(Allocator& alloc, Ref ref, bool in_list)
             [&](const TagView<Tag::ERROR,16>& err) {
                 res = strprintf("ERROR(%s:%d)", err.filename, err.line);
             },
-            [&](const TagView<Tag::FUNC,16>& func) { res = strprintf("FUNC(%d,-,-)", static_cast<int>(func.funcid)); },
-            [&](const TagView<Tag::FUNC_COUNT,16>& func) { res = strprintf("FUNCC(%d,-,-,%d)", static_cast<int>(func.funcid), func.counter); },
-            [&](const TagView<Tag::FUNC_EXT,16>& func) { res = strprintf("FUNCEXT(%d,-,-)", static_cast<int>(func.funcid)); }
+            [&](const TagView<Tag::FUNC,16>& func) { res = strprintf("FUNC(%s,state=%s,<env>)", get_funcname(func.funcid), to_string(alloc, func.state)); },
+            [&](const TagView<Tag::FUNC_COUNT,16>& func) { res = strprintf("FUNCC(%s,%d,state=%s,<env>)", get_funcname(func.funcid), func.counter, to_string(alloc, func.state)); },
+            [&](const TagView<Tag::FUNC_EXT,16>& func) { res = strprintf("FUNCEXT(%s,-,<env>)", get_funcname(func.funcid)); }
         ));
     }
     if (in_list) {

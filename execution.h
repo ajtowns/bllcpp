@@ -93,22 +93,20 @@ public:
         return m_continuations;
     }
 
+    void new_continuation(Buddy::Ref&& func, Buddy::Ref&& args);
+
     void new_continuation(SafeRef&& func, SafeRef&& args)
     {
-        m_continuations.emplace_back(func.take(), args.take());
+        new_continuation(func.take(), args.take());
     }
 
     void new_continuation(Buddy::FuncEnum auto funcid, SafeRef&& env, SafeRef&& args)
     {
-        m_continuations.emplace_back(m_alloc.create(funcid, std::move(env)).take(), args.take());
+        new_continuation(m_alloc.create(funcid, std::move(env)), std::move(args));
     }
 
-    void fin_value(SafeRef&& val)
-    {
-        assert(m_feedback.is_null());
-        m_feedback = val.take();
-    }
-
+    void fin_value(Buddy::Ref&& val);
+    void fin_value(SafeRef&& val) { fin_value(val.take()); }
     void error(std::source_location sloc=std::source_location::current())
     {
         fin_value(m_alloc.error(sloc));

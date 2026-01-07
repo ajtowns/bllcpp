@@ -15,6 +15,17 @@ using namespace Buddy;
 
 namespace Execution {
 
+void Program::new_continuation(Ref&& func, Ref&& args)
+{
+    m_continuations.emplace_back(func.take(), args.take());
+}
+
+void Program::fin_value(Ref&& val)
+{
+    assert(m_feedback.is_null());
+    m_feedback = val.take();
+}
+
 template<FuncEnum FE> struct StepParams;
 
 template<> struct StepParams<Func> {
@@ -56,8 +67,8 @@ static bool blleval_helper(auto& params)
     // XXX this should be convert<..>() instead of dispatch?
     params.args.dispatch(util::Overloaded(
         [&]<AtomicTagView ATV>(const ATV& atom) {
-            if (atom.span().size() != 0) {
-                res = false;
+            if (atom.span().size() == 0) {
+                res = false; // end of arg list
             } else {
                 params.program.error();
             }
@@ -103,18 +114,10 @@ static SafeRef getenv(SafeView env, int64_t env_index)
 template<auto FUNC> struct FuncDispatch;
 
 template<>
-struct FuncDispatch<QUOTE> {
-    static void step(StepParams<Func>& params)
-    {
-        params.program.fin_value(std::move(params.args));
-    }
-};
-
-template<>
 struct FuncDispatch<BLLEVAL> {
     static void step(StepParams<Func>& params)
     {
-        if (!params.feedback.is_null()) return params.program.error();
+        if (!params.feedback.is_null()) return params.program.error(); // BLLEVAL does not delegate, so should not receive feedback
         if (auto s = params.args.convert<int64_t>(); s) {
             int64_t env_index{s->value()};
             if (env_index == 0) {
@@ -146,27 +149,44 @@ struct FuncDispatch<BLLEVAL> {
 };
 
 template<>
+struct FuncDispatch<QUOTE> {
+    static void step(StepParams<Func>& params)
+    {
+        params.program.fin_value(std::move(params.args));
+    }
+};
+
+template<>
 struct FuncDispatch<OP_ADD> {
     static void step(StepParams<Func>& params)
     {
         if (params.feedback.is_null()) {
-            if (!blleval_helper(params)) {
-                params.program.fin_value(params.state.copy()); // finish()
-            }
+            if (!blleval_helper(params)) finish(params.program, params.state);
             return;
         }
 
-        auto s = SafeConv::ConvertRef<int64_t>::FromView(params.state);
+        auto s = params.state.convert_default<int64_t>(initial_state());
         if (!s) return params.program.error();
-        auto a = SafeConv::ConvertRef<int64_t>::FromRef(std::move(params.feedback));
+        auto a = params.feedback.convert<int64_t>();
         if (!a) return params.program.error();
-        SafeRef r = binop(params.program, s->value(), a->value());
+        SafeRef r = binop(params.program, s->value(), a->value()); // work()
         if (r.is_null()) return; // error
         params.program.new_continuation(
             params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
                 params.funcid, params.env.copy().take(), r.take())),
             std::move(params.args));
     }
+
+    static void finish(Program& program, SafeView state)
+    {
+        if (state.is_null()) {
+            program.fin_value(program.m_alloc.create(initial_state()));
+        } else {
+            program.fin_value(state.copy());
+        }
+    }
+
+    static int64_t initial_state() { return 0; }
 
     static SafeRef binop(Program& program, int64_t state, int64_t arg)
     {
@@ -180,6 +200,7 @@ struct FuncDispatch<OP_ADD> {
     }
 };
 
+// XXX unimplemented functions, just to make it compile
 template<auto FUNC> requires std::same_as<decltype(FUNC), Func>
 struct FuncDispatch<FUNC> {
     static void step(StepParams<Func>& ) { return; }
@@ -209,15 +230,6 @@ struct FuncEnumDispatch {
         }
     }
 };
-
-static SafeRef default_func(const auto& func, SafeRef&& env)
-{
-    return std::visit(util::Overloaded(
-        [&](const std::monostate&) { return env.Allocator().nullref(); },
-        [&](FuncEnum auto funcid) {
-            return FuncEnumDispatch<decltype(funcid)>::default_func(funcid, std::move(env));
-        }), func);
-}
 
 void Program::step()
 {

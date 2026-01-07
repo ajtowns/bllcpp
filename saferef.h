@@ -77,6 +77,15 @@ public:
         auto convert() {
             return SafeConv::ConvertRef<T>::FromRef(std::move(*this));
         }
+
+        template<typename T>
+        auto convert_default(T def) {
+            if (is_null()) {
+                return std::optional{SafeConv::ConvertRef<T>{std::move(*this), def}};
+            } else {
+                return SafeConv::ConvertRef<T>::FromRef(std::move(*this));
+            }
+        }
     };
 
     class SafeView {
@@ -131,6 +140,15 @@ public:
         template<typename T>
         auto convert() {
             return SafeConv::ConvertRef<T>::FromView(std::move(*this));
+        }
+
+        template<typename T>
+        auto convert_default(T def) {
+            if (is_null()) {
+                return std::optional{SafeConv::ConvertRef<T>{copy(), def}};
+            } else {
+                return SafeConv::ConvertRef<T>::FromView(std::move(*this));
+            }
         }
     };
 
@@ -241,6 +259,7 @@ private:
     int64_t v;
 
 public:
+    explicit ConvertRef(SafeRef&&, int64_t v) : v{v} { }
     explicit ConvertRef(int64_t v) : v{v} { }
     ConvertRef(ConvertRef&&) = default;
     ~ConvertRef() = default;
@@ -248,7 +267,7 @@ public:
     static std::optional<ConvertRef> FromRef(SafeRef&& ref)
     {
         auto res = FromView(ref);
-        ref = ref.nullref(); // free ref
+        if (res.has_value()) ref = ref.nullref(); // free ref
         return res;
     }
 
@@ -282,7 +301,7 @@ public:
     static std::optional<ConvertRef> FromRef(SafeRef&& ref)
     {
         auto res = FromView(ref);
-        ref = ref.nullref(); // free ref
+        if (res.has_value()) ref = ref.nullref(); // free ref
         return res;
     }
 
