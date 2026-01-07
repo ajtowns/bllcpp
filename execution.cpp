@@ -61,34 +61,28 @@ template<> struct StepParams<FuncExt> {
 
 static bool blleval_helper(auto& params)
 {
-    // shouldn't call this function if there's feedback
-    assert(params.feedback.is_null());
+    assert(params.feedback.is_null()); // shouldn't call this function if there's feedback
     assert(!params.args.is_null());
-    bool res = true;
-    // XXX this should be convert<..>() instead of dispatch?
-    params.args.dispatch(util::Overloaded(
-        [&]<AtomicTagView ATV>(const ATV& atom) {
-            if (atom.span().size() == 0) {
-                res = false; // end of arg list
-            } else {
-                params.program.error();
-            }
-        },
-        [&](const TagView<Tag::CONS,16>& cons) {
-            params.program.new_continuation(
-                 params.func.copy(),
-                 params.program.m_alloc.view(cons.right).copy());
-            params.program.new_continuation(BLLEVAL,
-                 params.env.copy(),
-                 params.program.m_alloc.view(cons.left).copy());
-            res = true;
-        },
-        [&](const auto&) {
+
+    if (auto lr = params.args.template convert<std::pair<SafeRef, SafeRef>>(); lr) {
+        params.program.new_continuation(
+             params.func.copy(),
+             std::move(lr->value().second));
+        params.program.new_continuation(BLLEVAL,
+             params.env.copy(),
+             std::move(lr->value().first));
+        return true;
+    } else if (auto a = params.args.template convert<std::span<const uint8_t>>(); a) {
+        if (a->value().size() == 0) {
+            return false; // end of arg list
+        } else {
             params.program.error();
-            res = true;
+            return true;
         }
-    ));
-    return res;
+    } else {
+        params.program.error();
+        return true;
+    }
 }
 
 static SafeRef getenv(SafeView env, int64_t env_index)
@@ -221,18 +215,19 @@ struct FuncDispatch<FUNCEXT> {
     static void step(StepParams<FuncExt>& ) { return; }
 };
 
+template<typename FE, template<FE> class Dispatcher>
+static constexpr auto step_dispatch_table() {
+    return []<size_t... I>(std::index_sequence<I...>) -> std::array<void(*)(StepParams<FE>&),FuncEnumSize<FE>> {
+        return { [](StepParams<FE>& params) { Dispatcher<static_cast<FE>(I)>::step(params); }... };
+    }(std::make_index_sequence<FuncEnumSize<FE>>{});
+}
+
 template<FuncEnum FE>
 struct FuncEnumDispatch {
-    template<size_t I=0>
+    static constexpr auto dispatch = step_dispatch_table<FE, FuncDispatch>();
     static void step(StepParams<FE>&& params)
     {
-        if constexpr (I < FuncEnumSize<FE>) {
-            constexpr auto F = static_cast<FE>(I);
-            if (params.funcid == F) {
-                return FuncDispatch<F>::step(params);
-            }
-            return step<I+1>(std::move(params));
-        }
+        return (dispatch[static_cast<size_t>(params.funcid)])(params);
     }
 };
 

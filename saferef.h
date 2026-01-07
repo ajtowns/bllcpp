@@ -222,7 +222,7 @@ public:
     {
         std::optional<ConvertRef> res{std::nullopt};
         ref.dispatch(util::Overloaded(
-            [&]<uint8_t SIZE>(const TagView<Tag::INPLACE_ATOM,SIZE>& atom) {
+            [&]<size_t SIZE>(const TagView<Tag::INPLACE_ATOM,SIZE>& atom) {
                 res.emplace(std::move(ref), atom.span());
             },
             [&](const TagView<Tag::OWNED_ATOM,16>& atomown) {
@@ -232,7 +232,9 @@ public:
                 res.emplace(ref.nullref(), atomext.span());
                 ref = ref.nullref();
             },
-            [](const auto&) { } // not an atom
+            [](const auto& tv) { // not an atom
+                 static_assert(!AtomicTagView<std::remove_cvref_t<decltype(tv)>>);
+            }
         ));
         return res;
     }

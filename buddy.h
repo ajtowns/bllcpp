@@ -241,7 +241,7 @@ struct TagRefCount
 };
 static_assert(sizeof(TagRefCount) == 4);
 
-template<uint8_t SIZE>
+template<size_t SIZE>
 struct alignas(16) TagView<Tag::NOREFCOUNT, SIZE>
 {
     const uint8_t tag;
@@ -252,7 +252,7 @@ static_assert(sizeof(TagView<Tag::NOREFCOUNT, 32>) == 32);
 static_assert(sizeof(TagView<Tag::NOREFCOUNT, 64>) == 64);
 static_assert(sizeof(TagView<Tag::NOREFCOUNT, 128>) == 128);
 
-template<uint8_t SIZE>
+template<size_t SIZE>
 struct alignas(16) TagView<Tag::INPLACE_ATOM, SIZE> : public TagRefCount
 {
     uint8_t size;
@@ -411,9 +411,11 @@ private:
     static_assert(sizeof(Chunk) == 16);
     static_assert(offsetof(Chunk, data) == offsetof(Info, tag));
 
-    template<Tag TAG, uint8_t SIZE>
+    template<Tag TAG, size_t SIZE>
     TagView<TAG, SIZE>* TagViewAt(Chunk* chunk)
     {
+        static_assert((SIZE & (SIZE-1)) == 0);
+        static_assert(SIZE >= 16 && SIZE <= 128);
         return reinterpret_cast<TagView<TAG,SIZE>*>(chunk);
     };
 
