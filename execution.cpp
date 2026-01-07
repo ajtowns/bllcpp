@@ -157,36 +157,40 @@ struct FuncDispatch<QUOTE> {
     }
 };
 
-template<>
-struct FuncDispatch<OP_ADD> {
+template<typename Derived, typename StateType, typename ArgType=StateType>
+struct BinOpHelper {
+    static void finish(Program& program, SafeView state)
+    {
+        if (state.is_null()) {
+            program.fin_value(program.m_alloc.create(Derived::initial_state()));
+        } else {
+            program.fin_value(state.copy());
+        }
+    }
+
     static void step(StepParams<Func>& params)
     {
         if (params.feedback.is_null()) {
-            if (!blleval_helper(params)) finish(params.program, params.state);
+            if (!blleval_helper(params)) Derived::finish(params.program, params.state);
             return;
         }
 
-        auto s = params.state.convert_default<int64_t>(initial_state());
+        auto s = params.state.convert_default<StateType>(Derived::initial_state());
         if (!s) return params.program.error();
-        auto a = params.feedback.convert<int64_t>();
+        auto a = params.feedback.convert<ArgType>();
         if (!a) return params.program.error();
-        SafeRef r = binop(params.program, s->value(), a->value()); // work()
+        SafeRef r = Derived::binop(params.program, s->value(), a->value()); // work()
         if (r.is_null()) return; // error
         params.program.new_continuation(
             params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
                 params.funcid, params.env.copy().take(), r.take())),
             std::move(params.args));
     }
+};
 
-    static void finish(Program& program, SafeView state)
-    {
-        if (state.is_null()) {
-            program.fin_value(program.m_alloc.create(initial_state()));
-        } else {
-            program.fin_value(state.copy());
-        }
-    }
 
+template<>
+struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> {
     static int64_t initial_state() { return 0; }
 
     static SafeRef binop(Program& program, int64_t state, int64_t arg)
