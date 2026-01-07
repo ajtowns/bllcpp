@@ -3,6 +3,7 @@
 #include <func.h>
 #include <buddy.h>
 #include <saferef.h>
+#include <overloaded.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -56,7 +57,7 @@ template<>
 struct FuncDispatch<QUOTE> {
     static void step(StepParams<Func>& params)
     {
-        params.program.fin_value(params.args.take());
+        params.program.fin_value(std::move(params.args));
     }
 
     SafeRef default_state(Program& program) { return program.m_alloc.nullref(); }
@@ -67,6 +68,7 @@ static bool blleval_helper(auto& params)
     // shouldn't call this function if there's feedback
     assert(params.feedback.is_null());
     bool res = true;
+    // XXX this should be convert<..>() instead of dispatch?
     params.args.dispatch(util::Overloaded(
         [&]<Buddy::AtomicTagView ATV>(const ATV& atom) {
             if (atom.span().size() != 0) {
@@ -77,12 +79,11 @@ static bool blleval_helper(auto& params)
         },
         [&](const Buddy::TagView<Buddy::Tag::CONS,16>& cons) {
             params.program.new_continuation(
-                 params.func.copy().take(),
-                 cons.right);
-            params.program.new_continuation(
-                 params.program.m_alloc.Allocator().create_func(
-                     BLLEVAL, params.env.copy().take(), Buddy::NULLREF),
-                 cons.left);
+                 params.func.copy(),
+                 params.program.m_alloc.view(cons.right).copy());
+            params.program.new_continuation(BLLEVAL,
+                 params.env.copy(),
+                 params.program.m_alloc.view(cons.left).copy());
             res = true;
         },
         [&](const auto&) {
@@ -93,13 +94,70 @@ static bool blleval_helper(auto& params)
     return res;
 }
 
+SafeRef Program::getenv(SafeView env, int64_t env_index)
+{
+    SafeRef res{m_alloc.nullref()};
+    if (env_index <= 0) {
+        res = m_alloc.nil();
+    } else {
+        while (env_index > 1) {
+            auto lr = env.convert<std::pair<SafeView, SafeView>>();
+            if (!lr) break;
+            if (env_index % 2 == 0) {
+                env = lr->value().first;
+            } else {
+                env = lr->value().second;
+            }
+        }
+        res = env.copy();
+    }
+    return res;
+}
+
+
+
+template<>
+struct FuncDispatch<BLLEVAL> {
+    static void step(StepParams<Func>& params)
+    {
+        if (!params.feedback.is_null()) return params.program.error();
+        if (auto s = params.args.convert<int64_t>(); s) {
+            int64_t env_index{s->value()};
+            if (env_index == 0) {
+                return params.program.fin_value(params.program.m_alloc.nil());
+            } else if (env_index > 0) {
+                auto env = params.program.getenv(params.env, env_index);
+                if (env.is_null()) return params.program.error();
+                return params.program.fin_value(env.copy());
+            } else {
+                return params.program.error(); // negative env is impossible
+            }
+        } else if (auto c = params.args.convert<std::pair<SafeRef,SafeRef>>(); c) {
+            auto [l, r] = std::move(c->value());
+            if (auto op = l.convert<int64_t>(); op) {
+                std::visit(util::Overloaded(
+                    [&](Buddy::FuncEnum auto funcid) {
+                        params.program.new_continuation(funcid, params.env.copy(), std::move(r));
+                    },
+                    [&](const std::monostate&) {
+                        return params.program.error(); // invalid opcode
+                    }), Buddy::lookup_opcode(op->value()));
+            } else {
+                return params.program.error(); // atom way too big to be an opcode
+            }
+        } else {
+            return params.program.error(); // trying to parse something strange
+        }
+    }
+};
+
 template<>
 struct FuncDispatch<OP_ADD> {
     static void step(StepParams<Func>& params)
     {
         if (params.feedback.is_null()) {
             if (!blleval_helper(params)) {
-                params.program.fin_value(params.state.copy().take()); // finish()
+                params.program.fin_value(params.state.copy()); // finish()
             }
             return;
         }
@@ -111,9 +169,9 @@ struct FuncDispatch<OP_ADD> {
         SafeRef r = binop(params.program, s->value(), a->value());
         if (r.is_null()) return; // error
         params.program.new_continuation(
-            params.program.m_alloc.Allocator().create_func(
-                params.funcid, params.env.copy().take(), r.take()),
-            params.args.take());
+            params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
+                params.funcid, params.env.copy().take(), r.take())),
+            std::move(params.args));
     }
 
     static SafeRef binop(Program& program, int64_t state, int64_t arg)
@@ -144,14 +202,22 @@ struct FuncDispatch<FUNCEXT> {
 };
 
 template<Buddy::FuncEnum FE>
-struct FuncEnumDispatch;
+struct NUM;
 
-template<> struct FuncEnumDispatch<Buddy::Func> {
+template<>
+struct NUM<Buddy::Func> { static constexpr size_t value{Buddy::NUM_Func}; };
+template<>
+struct NUM<Buddy::FuncCount> { static constexpr size_t value{Buddy::NUM_FuncCount}; };
+template<>
+struct NUM<Buddy::FuncExt> { static constexpr size_t value{Buddy::NUM_FuncExt}; };
+
+template<Buddy::FuncEnum FE>
+struct FuncEnumDispatch {
     template<size_t I=0>
-    static void step(StepParams<Func>&& params)
+    static void step(StepParams<FE>&& params)
     {
-        if constexpr (I < Buddy::NUM_Func) {
-            constexpr auto F = static_cast<Func>(I);
+        if constexpr (I < NUM<FE>::value) {
+            constexpr auto F = static_cast<FE>(I);
             if (params.funcid == F) {
                 return FuncDispatch<F>::step(params);
             }
@@ -160,37 +226,13 @@ template<> struct FuncEnumDispatch<Buddy::Func> {
     }
 };
 
-template<> struct FuncEnumDispatch<Buddy::FuncCount> {
-    template<size_t I=0>
-    static void step(StepParams<FuncCount>&& params)
-    {
-        if constexpr (I < Buddy::NUM_FuncCount) {
-            constexpr auto F = static_cast<FuncCount>(I);
-            if (params.funcid == F) {
-                return FuncDispatch<F>::step(params);
-            }
-            return step<I+1>(std::move(params));
-        }
-    }
-};
-
-template<> struct FuncEnumDispatch<Buddy::FuncExt> {
-    template<size_t I=0>
-    static void step(StepParams<FuncExt>&& params)
-    {
-        if constexpr (I < Buddy::NUM_FuncExt) {
-            constexpr auto F = static_cast<FuncExt>(I);
-            if (params.funcid == F) {
-                return FuncDispatch<F>::step(params);
-            }
-            return step<I+1>(std::move(params));
-        }
-    }
-};
-
-Buddy::Ref Program::create_bll_func(Buddy::Ref&& env)
+static SafeRef default_func(const auto& func, SafeRef&& env)
 {
-    return m_alloc.Allocator().create_func(BLLEVAL, env.take(), NULLREF);
+    return std::visit(util::Overloaded(
+        [&](const std::monostate&) { return env.Allocator().nullref(); },
+        [&](Buddy::FuncEnum auto funcid) {
+            return FuncEnumDispatch<decltype(funcid)>::default_func(funcid, std::move(env));
+        }), func);
 }
 
 void Program::step()
@@ -207,7 +249,7 @@ void Program::step()
               rawalloc.deref(c.func.take());
               rawalloc.deref(c.args.take());
          }
-         fin_value(feedback.take());
+         fin_value(m_alloc.takeref(feedback.take()));
          return;
     }
 
@@ -348,41 +390,6 @@ static ElView get_env(ElView env, int32_t n)
         }
     }
     return env;
-}
-
-template<>
-void FuncStepV<Func::BLLEVAL>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
-{
-    LogTrace(BCLog::BLL, "BLLEVAL step\n");
-    if (auto at = sp.args.get<ATOM>(); at) {
-        auto n = at->small_int();
-        if (n) {
-            if (*n == 0) {
-                sp.wi.fin_value(sp.wi.arena.nil());
-                return;
-            }
-            auto el = get_env(sp.env, *n);
-            if (el) {
-                sp.wi.fin_value(ElRef::copy_of(el));
-                return;
-            }
-        }
-        sp.wi.error();
-    } else if (auto lr = sp.args.get<CONS>(); lr) {
-        auto l = lr->left();
-        auto r = lr->right();
-        if (auto op = l.get<ATOM>(); op) {
-            auto n = op->small_int();
-            if (!n) return sp.wi.error();
-            auto fni = bll_opcodes.find(*n);
-            if (fni == bll_opcodes.end()) return sp.wi.error();
-            sp.wi.new_continuation(fni->second, ElRef::copy_of(r), sp.env.move());
-        } else {
-            sp.wi.error();
-        }
-    } else {
-        sp.wi.error();
-    }
 }
 
 template<size_t N, size_t I=0>

@@ -7,6 +7,11 @@
 #include <overloaded.h>
 #include <tinyformat.h>
 
+namespace SafeConv {
+template<typename T>
+class ConvertRef;
+}
+
 class SafeAllocator
 {
 private:
@@ -67,6 +72,11 @@ public:
         {
             m_safealloc.Allocator().dispatch(m_ref, std::forward<Fn>(fn));
         }
+
+        template<typename T>
+        auto convert() {
+            return SafeConv::ConvertRef<T>::FromRef(std::move(*this));
+        }
     };
 
     class SafeView {
@@ -85,14 +95,18 @@ public:
         ~SafeView() = default;
 
         SafeView(const SafeView&) = default;
-        SafeView& operator=(const SafeView&) = delete;
+        SafeView& operator=(const SafeView& other)
+        {
+            assert(&m_safealloc.m_alloc == &other.m_safealloc.m_alloc);
+            m_ref = other.m_ref;
+            return *this;
+        }
         SafeView(const SafeRef& ref LIFETIMEBOUND) : m_safealloc{ref.m_safealloc}, m_ref{ref.m_ref} { }
 
         SafeView(SafeView&& other) : m_safealloc{other.m_safealloc}, m_ref{other.m_ref.take()} { }
         SafeView& operator=(SafeView&& other)
         {
             assert(&m_safealloc.m_alloc == &other.m_safealloc.m_alloc);
-            deref();
             m_ref = other.m_ref;
             other.m_ref.set_null();
             return *this;
@@ -114,8 +128,13 @@ public:
             m_safealloc.Allocator().dispatch(m_ref, [&](const auto& tv) { fn(tv); });
         }
 
+        template<typename T>
+        auto convert() {
+            return SafeConv::ConvertRef<T>::FromView(std::move(*this));
+        }
     };
 
+    SafeRef bumpref(Ref ref) { return SafeRef(*this, m_alloc.bumpref(ref)); }
     SafeRef takeref(Ref&& ref) { return SafeRef(*this, ref.take()); }
     SafeView view(const Ref& ref LIFETIMEBOUND) { return SafeView(*this, Ref{ref}); }
 
@@ -127,6 +146,11 @@ public:
     SafeRef create(T&&... args) LIFETIMEBOUND
     {
         return SafeRef(*this, m_alloc.create(std::forward<T>(args)...));
+    }
+
+    SafeRef create(Buddy::FuncEnum auto funcid, SafeRef&& env)
+    {
+        return SafeRef(*this, m_alloc.create_func(funcid, env.m_ref.take()));
     }
 
     SafeRef cons(SafeRef&& left, SafeRef&& right) LIFETIMEBOUND
@@ -164,9 +188,6 @@ namespace SafeConv {
 
 using namespace Buddy;
 
-template<typename T>
-class ConvertRef;
-
 template<>
 class ConvertRef<std::span<const uint8_t>>
 {
@@ -175,7 +196,7 @@ private:
     std::span<const uint8_t> atom;
 
 public:
-    ConvertRef(SafeRef&& _ref, std::span<const uint8_t> _atom) : ref{std::move(_ref)}, atom{_atom} { }
+    explicit ConvertRef(SafeRef&& _ref, std::span<const uint8_t> _atom) : ref{std::move(_ref)}, atom{_atom} { }
     ConvertRef(ConvertRef&&) = default;
     ~ConvertRef() = default;
 
@@ -220,7 +241,7 @@ private:
     int64_t v;
 
 public:
-    ConvertRef(int64_t v) : v{v} { }
+    explicit ConvertRef(int64_t v) : v{v} { }
     ConvertRef(ConvertRef&&) = default;
     ~ConvertRef() = default;
 
@@ -233,10 +254,11 @@ public:
 
     static std::optional<ConvertRef> FromView(const SafeView& view)
     {
-        std::optional<int64_t> res{std::nullopt};
+        std::optional<ConvertRef> res{std::nullopt};
         view.dispatch(util::Overloaded(
             [&]<AtomicTagView ATV>(const ATV& atom) {
-                res = Buddy::SmallInt(atom.span());
+                auto v = Buddy::SmallInt(atom.span());
+                if (v) res.emplace(*v);
             },
             [](const auto&) { } // not an atom
         ));
@@ -244,6 +266,77 @@ public:
     }
 
     int64_t value() const { return v; }
+};
+
+template<>
+class ConvertRef<std::pair<SafeRef,SafeRef>>
+{
+private:
+    std::pair<SafeRef, SafeRef> cons;
+
+public:
+    explicit ConvertRef(SafeRef&& l, SafeRef&& r) : cons{std::move(l), std::move(r)} { }
+    ConvertRef(ConvertRef&&) = default;
+    ~ConvertRef() = default;
+
+    static std::optional<ConvertRef> FromRef(SafeRef&& ref)
+    {
+        auto res = FromView(ref);
+        ref = ref.nullref(); // free ref
+        return res;
+    }
+
+    static std::optional<ConvertRef> FromView(const SafeView& view)
+    {
+        std::optional<ConvertRef> res{std::nullopt};
+        auto& alloc = view.Allocator();
+        view.dispatch(util::Overloaded(
+            [&](const Buddy::TagView<Buddy::Tag::CONS,16>& cons) {
+                res.emplace(alloc.bumpref(cons.left), alloc.bumpref(cons.right));
+            },
+            [](const auto&) { } // not an atom
+        ));
+        return res;
+    }
+
+    std::pair<SafeRef, SafeRef>& value() LIFETIMEBOUND { return cons; }
+};
+
+template<>
+class ConvertRef<std::pair<SafeView,SafeView>>
+{
+private:
+    SafeRef parent;
+    std::pair<SafeView, SafeView> cons;
+
+public:
+    explicit ConvertRef(SafeRef&& p, SafeView l, SafeView r) : parent{std::move(p)}, cons{l, r} { }
+    ConvertRef(ConvertRef&&) = default;
+    ~ConvertRef() = default;
+
+    static std::optional<ConvertRef> FromRef(SafeRef&& ref)
+    {
+        auto res = FromView(ref);
+        if (res) {
+            res->parent = std::move(ref);
+        }
+        return res;
+    }
+
+    static std::optional<ConvertRef> FromView(const SafeView& view)
+    {
+        std::optional<ConvertRef> res{std::nullopt};
+        auto& alloc = view.Allocator();
+        view.dispatch(util::Overloaded(
+            [&](const Buddy::TagView<Buddy::Tag::CONS,16>& cons) {
+                res.emplace(alloc.nullref(), alloc.view(cons.left), alloc.view(cons.right));
+            },
+            [](const auto&) { } // not an atom
+        ));
+        return res;
+    }
+
+    std::pair<SafeView, SafeView>& value() LIFETIMEBOUND { return cons; }
 };
 
 } // SafeConv namespace

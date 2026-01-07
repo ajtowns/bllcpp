@@ -4,14 +4,19 @@
 #include <variant>
 
 namespace {
+
+using namespace Buddy;
+
 struct OpCodeInfo
 {
     using opcode_type = uint8_t;
     static constexpr opcode_type BAD_OPCODE{0xFF};
 
-    std::array<opcode_type, Buddy::NUM_Func> ops_Func;
-    std::array<opcode_type, Buddy::NUM_FuncCount> ops_FuncCount;
-    std::array<opcode_type, Buddy::NUM_FuncExt> ops_FuncExt;
+    std::array<opcode_type, NUM_Func> ops_Func;
+    std::array<opcode_type, NUM_FuncCount> ops_FuncCount;
+    std::array<opcode_type, NUM_FuncExt> ops_FuncExt;
+
+    std::array<FuncVariant, 256> op_funcs;
 
     template<typename FE, size_t NUM>
     static constexpr auto gen_array(const auto& init) {
@@ -25,10 +30,26 @@ struct OpCodeInfo
         return res;
     }
 
-    constexpr OpCodeInfo(const std::initializer_list<std::pair<opcode_type, std::variant<Buddy::Func, Buddy::FuncCount, Buddy::FuncExt>>>& init)
-      : ops_Func{gen_array<Buddy::Func,Buddy::NUM_Func>(init)}
-      , ops_FuncCount{gen_array<Buddy::FuncCount,Buddy::NUM_FuncCount>(init)}
-      , ops_FuncExt{gen_array<Buddy::FuncExt,Buddy::NUM_FuncExt>(init)}
+    static constexpr auto gen_opfuncs(const auto& init) {
+        std::array<FuncVariant, 256> res;
+        res.fill(std::monostate{});
+        for (auto [i, op] : init) {
+            if (!std::holds_alternative<std::monostate>(res[i])) {
+                throw; // duplicate entry
+            }
+            if (std::holds_alternative<std::monostate>(op)) {
+                throw; // defining opcode as undefined??
+            }
+            res[i] = op;
+        }
+        return res;
+    }
+
+    constexpr OpCodeInfo(const std::initializer_list<std::pair<opcode_type, FuncVariant>>& init)
+      : ops_Func{gen_array<Func,NUM_Func>(init)}
+      , ops_FuncCount{gen_array<FuncCount,NUM_FuncCount>(init)}
+      , ops_FuncExt{gen_array<FuncExt,NUM_FuncExt>(init)}
+      , op_funcs{gen_opfuncs(init)}
     {
     }
 };
@@ -83,8 +104,19 @@ static constexpr OpCodeInfo OPCODE_INFO{ {
 }};
 
 namespace Buddy {
+
 int64_t get_opcode(Func f) { return OPCODE_INFO.ops_Func[static_cast<size_t>(f)]; }
 int64_t get_opcode(FuncCount f) { return OPCODE_INFO.ops_FuncCount[static_cast<size_t>(f)]; }
 int64_t get_opcode(FuncExt f) { return OPCODE_INFO.ops_FuncExt[static_cast<size_t>(f)]; }
+
+FuncVariant lookup_opcode(int64_t op)
+{
+    if (op < int64_t{OPCODE_INFO.op_funcs.size()}) {
+        return OPCODE_INFO.op_funcs[op];
+    } else {
+        return std::monostate{};
+    }
 }
+
+} // Buddy namespace
 

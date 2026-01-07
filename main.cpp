@@ -47,9 +47,9 @@ void dump_cont(const WorkItem& wi)
 
 void dump_cont(const Execution::Program& wi)
 {
-    Buddy::Ref fb = wi.inspect_feedback();
+    SafeView fb = wi.inspect_feedback();
     if (!fb.is_null()) {
-        std::cout << "FB: " << Buddy::to_string(wi.m_alloc.Allocator(), fb) << std::endl;
+        std::cout << "FB: " << fb.to_string() << std::endl;
     }
     auto& cs = wi.inspect_continuations();
     for (auto& c : cs | std::views::reverse) {

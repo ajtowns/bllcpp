@@ -570,6 +570,21 @@ public:
         });
     }
 
+    Ref create_func(Func funcid, Ref&& env)
+    {
+        return create_func(funcid, std::move(env), NULLREF);
+    }
+
+    Ref create_func(FuncCount funcid, Ref&& env)
+    {
+        return create_func(funcid, std::move(env), NULLREF);
+    }
+
+    Ref create_func(FuncExt funcid, Ref&& env)
+    {
+        return create_func(funcid, std::move(env), nullptr);
+    }
+
     Ref create_error(std::source_location sloc=std::source_location::current())
     {
         return create<Tag::ERROR,16>({.line=sloc.line(), .filename=sloc.file_name()});

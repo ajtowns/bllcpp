@@ -70,11 +70,11 @@ private:
 
 public:
     template<typename T> struct Logic;
-    explicit Program(SafeAllocator& alloc LIFETIMEBOUND, Buddy::Ref&& sexpr, Buddy::Ref&& env)
+    explicit Program(SafeAllocator& alloc LIFETIMEBOUND, SafeRef&& sexpr, SafeRef&& env)
         : m_alloc{alloc}, m_feedback{NULLREF}
     {
         m_continuations.reserve(1024);
-        eval_sexpr(sexpr.take(), env.take());
+        eval_sexpr(std::move(sexpr), std::move(env));
     }
 
     ~Program() = default;
@@ -83,9 +83,9 @@ public:
     Program(const Program&) = delete;
     Program(Program&&) = delete;
 
-    Buddy::Ref inspect_feedback() const LIFETIMEBOUND
+    SafeView inspect_feedback() const LIFETIMEBOUND
     {
-        return m_feedback;
+        return m_alloc.view(m_feedback);
     }
 
     const std::vector<Continuation>& inspect_continuations() const LIFETIMEBOUND
@@ -93,14 +93,17 @@ public:
         return m_continuations;
     }
 
-    Buddy::Ref create_bll_func(Buddy::Ref&& env);
-
-    void new_continuation(Buddy::Ref&& func, Buddy::Ref&& args)
+    void new_continuation(SafeRef&& func, SafeRef&& args)
     {
         m_continuations.emplace_back(func.take(), args.take());
     }
 
-    void fin_value(Buddy::Ref&& val)
+    void new_continuation(Buddy::FuncEnum auto funcid, SafeRef&& env, SafeRef&& args)
+    {
+        m_continuations.emplace_back(m_alloc.create(funcid, std::move(env)).take(), args.take());
+    }
+
+    void fin_value(SafeRef&& val)
     {
         assert(m_feedback.is_null());
         m_feedback = val.take();
@@ -108,13 +111,16 @@ public:
 
     void error(std::source_location sloc=std::source_location::current())
     {
-        fin_value(m_alloc.Allocator().create_error(sloc));
+        fin_value(m_alloc.error(sloc));
     }
 
-    void eval_sexpr(Buddy::Ref&& sexpr, Buddy::Ref&& env)
+    SafeRef create_bll_func(SafeRef&& env);
+    void eval_sexpr(SafeRef&& sexpr, SafeRef&& env)
     {
-        new_continuation(create_bll_func(env.take()), sexpr.take());
+        new_continuation(BLLEVAL, std::move(env), std::move(sexpr));
     }
+
+    SafeRef getenv(SafeView env, int64_t env_index);
 
     void step();
 
