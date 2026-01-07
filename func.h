@@ -3,6 +3,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <variant>
 
 namespace Buddy {
@@ -28,7 +29,7 @@ enum class Func : uint16_t {
     // OP_MUL,
     // OP_LT_NUM,
     // OP_TX,
-    BLLEVAL,
+    BLLEVAL, // internal only
 };
 inline constexpr size_t NUM_Func{11};
 
@@ -66,6 +67,8 @@ int64_t get_opcode(FuncExt f);
 using FuncVariant = std::variant<std::monostate, Func, FuncCount, FuncExt>;
 
 FuncVariant lookup_opcode(int64_t);
+
+std::string get_funcname(FuncVariant funcid);
 
 } // Buddy namespace
 

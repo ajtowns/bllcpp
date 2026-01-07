@@ -56,8 +56,6 @@ struct FuncDispatch<QUOTE> {
     {
         params.program.fin_value(std::move(params.args));
     }
-
-    SafeRef default_state(Program& program) { return program.m_alloc.nullref(); }
 };
 
 static bool blleval_helper(auto& params)
@@ -300,95 +298,6 @@ void Program::step()
 }
 
 #if 0
-
-using func_name_array = std::array<std::string, ElConceptDef<FUNC>::variants>;
-
-#define CASE_FUNC_NAME(F) case F: res[F] = #F; break
-static func_name_array gen_func_names()
-{
-    func_name_array res;
-    for (size_t i = 0; i < res.size(); ++i) {
-        switch(static_cast<Func::Func>(i)) {
-            CASE_FUNC_NAME(Func::QUOTE);
-            CASE_FUNC_NAME(Func::APPLY);
-            CASE_FUNC_NAME(Func::OP_X);
-            CASE_FUNC_NAME(Func::OP_RC);
-            CASE_FUNC_NAME(Func::OP_HEAD);
-            CASE_FUNC_NAME(Func::OP_TAIL);
-            CASE_FUNC_NAME(Func::OP_LIST);
-            CASE_FUNC_NAME(Func::OP_IF);
-            CASE_FUNC_NAME(Func::OP_NOTALL);
-            CASE_FUNC_NAME(Func::OP_ALL);
-            CASE_FUNC_NAME(Func::OP_ANY);
-            CASE_FUNC_NAME(Func::OP_LT_STR);
-            CASE_FUNC_NAME(Func::OP_STRLEN);
-            CASE_FUNC_NAME(Func::OP_SUBSTR);
-            CASE_FUNC_NAME(Func::OP_CAT);
-            CASE_FUNC_NAME(Func::OP_ADD);
-            CASE_FUNC_NAME(Func::BLLEVAL);
-        }
-    }
-    return res;
-}
-#undef CASE_FUNC_NAME
-
-const func_name_array ElConceptDef<FUNC>::func_name = gen_func_names();
-
-template<> void WorkItem::Logic<ElConcept<FUNC>>::step(StepParams&& sp, const ElConcept<FUNC>& func) { func.step(sp); }
-
-template<typename T, ElConcept<FUNC>::V Variant>
-struct FuncStep
-{
-     static_assert(std::is_same_v<ElData<FUNC,Variant>, T>);
-     static void step(const ElConcept<FUNC>&, const T&, StepParams& sp);
-};
-
-template<ElConcept<FUNC>::V Variant>
-using FuncStepV = FuncStep<ElData<FUNC,Variant>, Variant>;
-
-template<ElConcept<FUNC>::V Variant=0>
-static void func_step_helper(const ElConcept<FUNC>& ec, StepParams& sp)
-{
-    static_assert(Variant < Variant.MAX);
-    if constexpr (Variant < Variant.LAST) {
-        if (ec.variant() != Variant) {
-            return func_step_helper<Variant+1>(ec, sp);
-        }
-    }
-    auto& eld = ec.get_el().data_ro<ElData<FUNC,Variant>>();
-    return FuncStepV<Variant>::step(ec, eld, sp);
-}
-
-void ElConcept<FUNC>::step(StepParams& sp) const
-{
-    func_step_helper(*this, sp);
-}
-
-template<>
-void FuncStepV<Func::QUOTE>::step(const ElConcept<FUNC>&, const FuncNone&, StepParams& sp)
-{
-    sp.wi.fin_value( sp.args.move() );
-}
-
-static ElView get_env(ElView env, int32_t n)
-{
-    if (n <= 0) return ElView(nullptr);
-
-    while (n > 1) {
-        if (auto lr = env.get<CONS>(); lr) {
-            if (n & 1) {
-                env = lr->right();
-            } else {
-                env = lr->left();
-            }
-            n >>= 1;
-        } else {
-            return ElView(nullptr);
-        }
-    }
-    return env;
-}
-
 template<size_t N, size_t I=0>
 static void populate(std::array<ElRef, N>& arr, ElView el, size_t remaining)
 {
@@ -405,17 +314,6 @@ static void populate(std::array<ElRef, N>& arr, ElView el, size_t remaining)
         }
     }
 }
-
-template<Func::Func FnId>
-struct BinOpcode;
-
-struct BinOpcodeBase
-{
-    static ElRef finish(Arena&, ElView state) { return ElRef::copy_of(state); }
-};
-
-template<Func::Func FnId>
-struct FixOpcode;
 
 template<size_t MIN, size_t MAX>
 struct FixOpcodeBase
@@ -753,12 +651,12 @@ static auto apply_suffix(Fn&& fn, A&& suffix, T&&... prefix)
     return std::apply(call_suffix, suffix);
 }
 
-// returns true if it can complete processing
+// returns true this function updated the continuation
 static bool blleval_helper(const ElConcept<FUNC>& ec, StepParams& sp)
 {
-    if (sp.feedback) {
-        return false;
-    } else if (auto lr = sp.args.get<CONS>(); lr) {
+    if (!sp.feedback.is_null()) return false; // caller has to deal with feedback
+
+    if (auto lr = sp.args.get<CONS>(); lr) {
         auto l = lr->left();
         auto r = lr->right();
         sp.wi.new_continuation(ElRef::copy_of(ec), ElRef::copy_of(r), sp.env.copy());
@@ -767,31 +665,31 @@ static bool blleval_helper(const ElConcept<FUNC>& ec, StepParams& sp)
     } else if (!sp.args.is_nil()) {
         sp.wi.error();
         return true;
-    } else {
-        return false;
     }
+    return false; // caller has to deal with finalisation
 }
 
 static bool extcount_helper(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp, int min_args, int max_args)
 {
-    if (blleval_helper(ec, sp)) return true;
-
     if (sp.feedback) {
         if (extcount.count >= max_args) {
             sp.wi.error();
-            return true;
+        } else {
+            auto newed = (extcount.count == 0 ? sp.feedback.move() : sp.wi.arena.New<CONS>(sp.feedback.move(), extcount.extdata.copy()));
+            auto newfn = sp.wi.arena.NewFunc<FuncExtCount>(ec.get_fnid(), newed.move(), extcount.count + 1);
+            sp.wi.new_continuation(newfn.move(), sp.args.move(), sp.env.move());
         }
-        auto newed = (extcount.count == 0 ? sp.feedback.move() : sp.wi.arena.New<CONS>(sp.feedback.move(), extcount.extdata.copy()));
-        auto newfn = sp.wi.arena.NewFunc<FuncExtCount>(ec.get_fnid(), newed.move(), extcount.count + 1);
-        sp.wi.new_continuation(newfn.move(), sp.args.move(), sp.env.move());
         return true;
     }
+
+    if (blleval_helper(ec, sp)) return true;
 
     // no more args to process, so finalise
     if (extcount.count < min_args) {
         sp.wi.error();
         return true;
     }
+
     return false;
 }
 

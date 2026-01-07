@@ -1,6 +1,9 @@
 #include <func.h>
 
+#include <overloaded.h>
+
 #include <array>
+#include <string>
 #include <variant>
 
 namespace {
@@ -24,7 +27,9 @@ struct OpCodeInfo
         res.fill(BAD_OPCODE);
         for (auto [i, op] : init) {
             if (std::holds_alternative<FE>(op)) {
-                res[static_cast<size_t>(std::get<FE>(op))] = i;
+                auto funcid = static_cast<size_t>(std::get<FE>(op));
+                if (res[funcid] != BAD_OPCODE) throw; // duplicate opcode
+                res[funcid] = i;
             }
         }
         return res;
@@ -90,7 +95,7 @@ static constexpr OpCodeInfo OPCODE_INFO{ {
   // { 31, ? },
   // { 32, OP_RD },
   // { 33, OP_WR },
-  // { 34, OP_SHA256 },
+  { 34, OP_SHA256 },
   // { 35, OP_RIPEMD160 },
   // { 36, OP_HASH160 },
   // { 37, OP_HASH256 },
@@ -117,6 +122,45 @@ FuncVariant lookup_opcode(int64_t op)
         return std::monostate{};
     }
 }
+
+#define OP_NAME(x) case x: return #x;
+std::string get_funcname(FuncVariant funcid)
+{
+    return std::visit(util::Overloaded(
+        [](Func funcid) -> std::string {
+            switch (funcid) {
+                OP_NAME(BLLEVAL)
+                OP_NAME(QUOTE)
+                OP_NAME(OP_X)
+                OP_NAME(OP_RC)
+                OP_NAME(OP_NOTALL)
+                OP_NAME(OP_ALL)
+                OP_NAME(OP_ANY)
+                OP_NAME(OP_LT_STR)
+                OP_NAME(OP_STRLEN)
+                OP_NAME(OP_CAT)
+                OP_NAME(OP_ADD)
+            }
+        },
+        [](FuncCount funcid) -> std::string {
+            switch (funcid) {
+                OP_NAME(APPLY)
+                OP_NAME(OP_IF)
+                OP_NAME(OP_HEAD)
+                OP_NAME(OP_TAIL)
+                OP_NAME(OP_LIST)
+                OP_NAME(OP_SUBSTR)
+            }
+        },
+        [](FuncExt funcid) -> std::string {
+            switch (funcid) {
+                OP_NAME(OP_SHA256)
+            }
+        },
+        [](const std::monostate&) -> std::string { return {}; }),
+        funcid);
+}
+#undef OP_NAME
 
 } // Buddy namespace
 
