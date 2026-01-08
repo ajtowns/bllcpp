@@ -13,6 +13,8 @@
 
 using namespace Buddy;
 
+using atomspan = std::span<const uint8_t>;
+
 namespace Execution {
 
 void Program::new_continuation(Ref&& func, Ref&& args)
@@ -72,7 +74,7 @@ static bool blleval_helper(auto& params)
              params.env.copy(),
              std::move(lr->value().first));
         return true;
-    } else if (auto a = params.args.template convert<std::span<const uint8_t>>(); a) {
+    } else if (auto a = params.args.template convert<atomspan>(); a) {
         if (a->value().size() == 0) {
             return false; // end of arg list
         } else {
@@ -182,7 +184,6 @@ struct BinOpHelper {
     }
 };
 
-
 template<>
 struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> {
     static int64_t initial_state() { return 0; }
@@ -195,6 +196,32 @@ struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> 
         } else {
             program.m_alloc.error();
             return program.m_alloc.nullref();
+        }
+    }
+};
+
+template<>
+struct FuncDispatch<OP_CAT> : public BinOpHelper<FuncDispatch<OP_CAT>, atomspan> {
+    static atomspan initial_state() { return {}; }
+
+    static SafeRef binop(Program& program, atomspan state, atomspan arg)
+    {
+        size_t sz = state.size() + arg.size();
+        std::span<uint8_t> dst;
+        std::array<uint8_t, 123> arr;
+        uint8_t* owned{nullptr};
+        if (sz <= arr.size()) {
+            dst = std::span{arr}.subspan(0, sz);
+        } else {
+            owned = static_cast<uint8_t*>(std::malloc(sz));
+            dst = std::span{owned, sz};
+        }
+        auto mid = std::copy(state.begin(), state.end(), dst.begin());
+        std::copy(arg.begin(), arg.end(), mid);
+        if (owned == nullptr) {
+            return program.m_alloc.create(dst);
+        } else {
+            return program.m_alloc.create_owned(dst);
         }
     }
 };

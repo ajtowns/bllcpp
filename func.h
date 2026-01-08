@@ -9,6 +9,7 @@
 
 namespace Buddy {
 enum class Func : uint16_t {
+    BLLEVAL, // internal only, no opcode
     QUOTE,
     // PARTIAL,
     OP_X,
@@ -30,7 +31,6 @@ enum class Func : uint16_t {
     // OP_MUL,
     // OP_LT_NUM,
     // OP_TX,
-    BLLEVAL, // internal only
 };
 
 enum class FuncCount : uint16_t {

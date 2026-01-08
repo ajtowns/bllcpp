@@ -166,6 +166,12 @@ public:
         return SafeRef(*this, m_alloc.create(std::forward<T>(args)...));
     }
 
+    SafeRef create_owned(std::span<uint8_t> atom)
+    {
+        if (atom.size() > std::numeric_limits<uint32_t>::max()) return error();
+        return SafeRef(*this, m_alloc.create<Buddy::Tag::OWNED_ATOM,16>({atom.data(), static_cast<uint32_t>(atom.size())}));
+    }
+
     SafeRef create(Buddy::FuncEnum auto funcid, SafeRef&& env)
     {
         return SafeRef(*this, m_alloc.create_func(funcid, env.m_ref.take()));

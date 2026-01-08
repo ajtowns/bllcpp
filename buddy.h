@@ -388,7 +388,7 @@ struct quoted_type {
 template<typename T>
 quoted_type(T&&) -> quoted_type<std::decay_t<T>>;
 
-inline constexpr auto quote = [](auto&& v) -> quoted_type<std::decay_t<decltype(v)>> { return quoted_type{std::forward<decltype(v)>(v)}; };
+inline constexpr auto quote = [](auto&& v) -> quoted_type<std::decay_t<decltype(v)>> { return quoted_type<std::decay_t<decltype(v)>>{std::forward<decltype(v)>(v)}; };
 
 class Allocator
 {
@@ -488,7 +488,7 @@ public:
         }
     }
 
-    template<Tag TAG, size_t SIZE, typename... T>
+    template<Tag TAG, size_t SIZE>
     Ref create(TagView<TAG,SIZE> tv)
     {
         Ref r{allocate(SIZE)};

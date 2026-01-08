@@ -235,7 +235,7 @@ void test11(Buddy::Allocator& raw_alloc)
 
     constexpr auto q = Buddy::quote; // short alias for quoting
 
-    SafeRef sexpr = alloc.create_list(OP_ADD, q(1), q(2), q(3));
+    SafeRef sexpr = alloc.create_list(OP_CAT, q("hello"), q(" "), q("world"), alloc.create_list(OP_ADD, q(1), q(2), q(3), q(4), q(5), q(6), q(7), q(5)));
     SafeRef env = alloc.nil();
 
     std::cout << "test11 sexpr=" << sexpr.to_string() << "; env=" << env.to_string() << std::endl;
