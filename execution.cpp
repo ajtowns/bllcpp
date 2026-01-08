@@ -277,6 +277,18 @@ struct FuncDispatch<OP_ANY> : public BinOpHelper<FuncDispatch<OP_ANY>, bool> {
 };
 
 template<>
+struct FuncDispatch<OP_STRLEN> : public BinOpHelper<FuncDispatch<OP_STRLEN>, int64_t, atomspan> {
+    static int64_t initial_state() { return 0; }
+
+    static bool idempotent(int64_t, const atomspan& arg) { return arg.size() == 0; }
+
+    static SafeRef binop(Program& program, int64_t state, atomspan arg)
+    {
+        return program.m_alloc.create(state + static_cast<int64_t>(arg.size()));
+    }
+};
+
+template<>
 struct FuncDispatch<OP_CAT> : public BinOpHelper<FuncDispatch<OP_CAT>, atomspan> {
     static atomspan initial_state() { return {}; }
 
