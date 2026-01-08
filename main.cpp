@@ -243,6 +243,9 @@ void test11(Buddy::Allocator& raw_alloc)
     std::cout << "test11 sexpr=" << sexpr.to_string() << "; env=" << env.to_string() << std::endl;
     Execution::Program p{alloc, std::move(sexpr), std::move(env)};
     run(p);
+
+    Execution::Program x{alloc, list(OP_X, q(1), q(2)), list()};
+    run(x);
 }
 
 int main(void)

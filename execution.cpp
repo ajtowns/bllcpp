@@ -210,6 +210,22 @@ struct BinOpHelper {
 };
 
 template<>
+struct FuncDispatch<OP_X> : public BinOpHelper<FuncDispatch<OP_X>, SafeView, SafeView> {
+    static bool idempotent(const SafeView&, const SafeView&) { return true; }
+
+    static std::optional<SafeView> get_state(StepParams<Func>& params)
+    {
+        return std::optional{params.state.copy()};
+    }
+    static SafeRef binop(Program&, const SafeView& state, const SafeView&) { return state.copy(); }
+
+    static void finish(Program& program, SafeView)
+    {
+        program.error();
+    }
+};
+
+template<>
 struct FuncDispatch<OP_RC> : public BinOpHelper<FuncDispatch<OP_RC>, SafeRef, SafeRef> {
     static std::optional<SafeRef> get_state(StepParams<Func>& params)
     {

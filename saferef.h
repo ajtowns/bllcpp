@@ -223,6 +223,26 @@ public:
 };
 
 template<>
+class ConvertRef<SafeView>
+{
+private:
+    SafeRef m_ref;
+    SafeView m_view;
+
+public:
+    explicit ConvertRef(SafeRef&& ref) : m_ref{std::move(ref)}, m_view{m_ref} { }
+    explicit ConvertRef(SafeView&& view) : m_ref{view.nullref()}, m_view{view} { }
+    ConvertRef(ConvertRef&&) = default;
+    ~ConvertRef() = default;
+
+    bool has_value() const { return true; }
+    operator bool() const { return has_value(); }
+
+    auto& operator*() { return m_view; }
+    auto* operator->() { return &m_view; }
+};
+
+template<>
 class ConvertRef<bool>
 {
 private:
