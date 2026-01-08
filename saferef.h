@@ -58,7 +58,7 @@ public:
         }
 
         SafeAllocator& Allocator() const { return m_safealloc; }
-        SafeRef copy() { return SafeRef{m_safealloc, m_safealloc.m_alloc.bumpref(m_ref)}; }
+        SafeRef copy() const { return SafeRef{m_safealloc, m_safealloc.m_alloc.bumpref(m_ref)}; }
         Ref take() { return m_ref.take(); }
 
         SafeRef nullref() const { return m_safealloc.nullref(); }
@@ -122,7 +122,7 @@ public:
         }
 
         SafeAllocator& Allocator() const { return m_safealloc; }
-        SafeRef copy() { return SafeRef{m_safealloc, m_safealloc.m_alloc.bumpref(m_ref)}; }
+        SafeRef copy() const { return SafeRef{m_safealloc, m_safealloc.m_alloc.bumpref(m_ref)}; }
 
         SafeRef nullref() const { return m_safealloc.nullref(); }
         bool is_null() const { return m_ref.is_null(); }
@@ -158,7 +158,14 @@ public:
 
     SafeRef nullref() { return SafeRef(*this, Buddy::NULLREF); }
 
+    template<typename T>
+    SafeRef create(Buddy::quoted_type<T> r)
+    {
+        return cons(nil(), create(std::move(r.value)));
+    }
+
     SafeRef create(SafeRef&& r) LIFETIMEBOUND { return std::move(r); }
+    SafeRef create(SafeView v) LIFETIMEBOUND { return v.copy(); }
 
     template<typename... T>
     SafeRef create(T&&... args) LIFETIMEBOUND
@@ -211,6 +218,66 @@ using SafeView = SafeAllocator::SafeView;
 namespace SafeConv {
 
 using namespace Buddy;
+
+template<>
+class ConvertRef<SafeRef>
+{
+private:
+    SafeRef m_ref;
+
+public:
+    explicit ConvertRef(SafeRef&& ref) : m_ref{std::move(ref)} { }
+    ConvertRef(ConvertRef&&) = default;
+    ~ConvertRef() = default;
+
+    static std::optional<ConvertRef> FromRef(SafeRef&& ref)
+    {
+        if (ref.is_null()) return std::nullopt;
+        return ConvertRef{std::move(ref)};
+    }
+
+    static std::optional<ConvertRef> FromView(const SafeView& view)
+    {
+        if (view.is_null()) return std::nullopt;
+        return ConvertRef{view.copy()};
+    }
+
+    SafeRef& value() { return m_ref; }
+};
+
+template<>
+class ConvertRef<bool>
+{
+private:
+    bool v;
+
+public:
+    explicit ConvertRef(SafeRef&&, bool v) : v{v} { }
+    explicit ConvertRef(bool v) : v{v} { }
+    ConvertRef(ConvertRef&&) = default;
+    ~ConvertRef() = default;
+
+    static std::optional<ConvertRef> FromRef(SafeRef&& ref)
+    {
+        auto res = FromView(ref);
+        if (res.has_value()) ref = ref.nullref(); // free ref
+        return res;
+    }
+
+    static std::optional<ConvertRef> FromView(const SafeView& view)
+    {
+        std::optional<ConvertRef> res{true};
+        view.dispatch(util::Overloaded(
+            [&]<AtomicTagView ATV>(const ATV& atom) {
+                if (atom.span().size() == 0) res.emplace(false);
+            },
+            [](const auto&) { } // not an atom
+        ));
+        return res;
+    }
+
+    int64_t value() const { return v; }
+};
 
 template<>
 class ConvertRef<std::span<const uint8_t>>

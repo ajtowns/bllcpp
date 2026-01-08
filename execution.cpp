@@ -5,6 +5,7 @@
 #include <saferef.h>
 #include <overloaded.h>
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -108,6 +109,7 @@ static SafeRef getenv(SafeView env, int64_t env_index)
     return res;
 }
 
+namespace {
 template<auto FUNC> struct FuncDispatch;
 
 template<>
@@ -164,17 +166,26 @@ struct BinOpHelper {
         }
     }
 
+    static bool idempotent(const StateType&, const ArgType&) { return false; }
+
     static void step(StepParams<Func>& params)
     {
+        static_assert(std::derived_from<Derived, BinOpHelper<Derived,StateType,ArgType>>, "Derived must inherit from BinOpHelper<Derived> (CRTP requirement)");
+
         if (params.feedback.is_null()) {
             if (!blleval_helper(params)) Derived::finish(params.program, params.state);
             return;
         }
 
-        auto s = params.state.convert_default<StateType>(Derived::initial_state());
-        if (!s) return params.program.error();
         auto a = params.feedback.convert<ArgType>();
         if (!a) return params.program.error();
+        auto s = params.state.convert_default<StateType>(Derived::initial_state());
+        if (!s) return params.program.error();
+        if (Derived::idempotent(s->value(), a->value())) {
+            params.program.new_continuation(
+                params.func.copy(), params.args.copy());
+            return;
+        }
         SafeRef r = Derived::binop(params.program, s->value(), a->value()); // work()
         if (r.is_null()) return; // error
         params.program.new_continuation(
@@ -185,24 +196,37 @@ struct BinOpHelper {
 };
 
 template<>
-struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> {
-    static int64_t initial_state() { return 0; }
-
-    static SafeRef binop(Program& program, int64_t state, int64_t arg)
+struct FuncDispatch<OP_NOTALL> : public BinOpHelper<FuncDispatch<OP_NOTALL>, bool> {
+    static bool initial_state() { return false; }
+    static SafeRef binop(Program& program, bool state, bool arg)
     {
-        if ((arg >= 0 && std::numeric_limits<int64_t>::max() - arg >= state)
-            || (arg < 0 && std::numeric_limits<int64_t>::min() - arg >= state)) {
-            return program.m_alloc.create(state + arg);
-        } else {
-            program.m_alloc.error();
-            return program.m_alloc.nullref();
-        }
+        return program.m_alloc.create(state || !arg);
+    }
+};
+
+template<>
+struct FuncDispatch<OP_ALL> : public BinOpHelper<FuncDispatch<OP_ALL>, bool> {
+    static bool initial_state() { return true; }
+    static SafeRef binop(Program& program, bool state, bool arg)
+    {
+        return program.m_alloc.create(state && arg);
+    }
+};
+
+template<>
+struct FuncDispatch<OP_ANY> : public BinOpHelper<FuncDispatch<OP_ANY>, bool> {
+    static bool initial_state() { return false; }
+    static SafeRef binop(Program& program, bool state, bool arg)
+    {
+        return program.m_alloc.create(state || arg);
     }
 };
 
 template<>
 struct FuncDispatch<OP_CAT> : public BinOpHelper<FuncDispatch<OP_CAT>, atomspan> {
     static atomspan initial_state() { return {}; }
+
+    static bool idempotent(const atomspan&, const atomspan& arg) { return arg.size() == 0; }
 
     static SafeRef binop(Program& program, atomspan state, atomspan arg)
     {
@@ -226,6 +250,24 @@ struct FuncDispatch<OP_CAT> : public BinOpHelper<FuncDispatch<OP_CAT>, atomspan>
     }
 };
 
+template<>
+struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> {
+    static int64_t initial_state() { return 0; }
+
+    static bool idempotent(int64_t, int64_t arg) { return arg == 0; }
+
+    static SafeRef binop(Program& program, int64_t state, int64_t arg)
+    {
+        if ((arg >= 0 && std::numeric_limits<int64_t>::max() - arg >= state)
+            || (arg < 0 && std::numeric_limits<int64_t>::min() - arg >= state)) {
+            return program.m_alloc.create(state + arg);
+        } else {
+            program.m_alloc.error();
+            return program.m_alloc.nullref();
+        }
+    }
+};
+
 // XXX unimplemented functions, just to make it compile
 template<auto FUNC> requires std::same_as<decltype(FUNC), Func>
 struct FuncDispatch<FUNC> {
@@ -241,6 +283,7 @@ template<auto FUNCEXT> requires std::same_as<decltype(FUNCEXT), FuncExt>
 struct FuncDispatch<FUNCEXT> {
     static void step(StepParams<FuncExt>& ) { return; }
 };
+} // anonymous namespace
 
 template<typename FE, template<FE> class Dispatcher>
 static constexpr auto step_dispatch_table() {

@@ -512,6 +512,7 @@ public:
     Ref create(std::string_view sv) { return create(MakeUCharSpan(sv)); }
     Ref create(const char* s) { return create(std::span(s, strlen(s))); }
     Ref create(int64_t n);
+    Ref create(int n) { return create(static_cast<int64_t>(n)); }
 
     Ref create(FuncEnum auto func) { return create(get_opcode(func)); }
 
@@ -523,9 +524,9 @@ public:
 
     Ref create(Ref&& r) { return r.take(); }
 
-    Ref create_bool(bool b) { return bumpref(_nilone[b ? 1 : 0]); }
-    Ref nil() { return create_bool(false); }
-    Ref one() { return create_bool(true); }
+    Ref create(bool b) { return bumpref(_nilone[b ? 1 : 0]); }
+    Ref nil() { return create(false); }
+    Ref one() { return create(true); }
 
     Ref create_cons(Ref&& left, Ref&& right)
     {
@@ -587,7 +588,7 @@ public:
         return create<Tag::ERROR,16>({.line=sloc.line(), .filename=sloc.file_name()});
     }
 
-    Ref bumpref(Ref& ref)
+    Ref bumpref(Ref ref)
     {
         Ref res{NULLREF};
         dispatch(ref, util::Overloaded(

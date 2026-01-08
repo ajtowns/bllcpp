@@ -234,8 +234,10 @@ void test11(Buddy::Allocator& raw_alloc)
     alloc.DumpChunks();
 
     constexpr auto q = Buddy::quote; // short alias for quoting
+    auto list = [&](auto&&... a) { return alloc.create_list(std::forward<decltype(a)>(a)...); };
 
-    SafeRef sexpr = alloc.create_list(OP_CAT, q("hello"), q(" "), q("world"), alloc.create_list(OP_ADD, q(1), q(2), q(3), q(4), q(5), q(6), q(7), q(5)));
+    SafeRef one = list(OP_ADD, list(OP_ALL, q(1), q(2), q(3), 0, q(4)), list(OP_ANY), list(OP_NOTALL), list(OP_NOTALL, q(1), q(2), q(3)), list(OP_ANY, 0, 0, 0, q(list(1,2,3))));
+    SafeRef sexpr = alloc.create_list(OP_CAT, q("hello"), q(" "), q("world"), alloc.create_list(OP_ADD, std::move(one), q(2), q(3), q(4), q(5), q(6), q(7), q(5)));
     SafeRef env = alloc.nil();
 
     std::cout << "test11 sexpr=" << sexpr.to_string() << "; env=" << env.to_string() << std::endl;
