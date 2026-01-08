@@ -70,13 +70,13 @@ static bool blleval_helper(auto& params)
     if (auto lr = params.args.template convert<std::pair<SafeRef, SafeRef>>(); lr) {
         params.program.new_continuation(
              params.func.copy(),
-             std::move(lr->value().second));
+             std::move(lr->second));
         params.program.new_continuation(BLLEVAL,
              params.env.copy(),
-             std::move(lr->value().first));
+             std::move(lr->first));
         return true;
     } else if (auto a = params.args.template convert<atomspan>(); a) {
-        if (a->value().size() == 0) {
+        if (a->size() == 0) {
             return false; // end of arg list
         } else {
             params.program.error();
@@ -99,9 +99,9 @@ static SafeRef getenv(SafeView env, int64_t env_index)
             auto lr = env.convert<std::pair<SafeView, SafeView>>();
             if (!lr) break;
             if (env_index % 2 == 0) {
-                env = lr->value().first;
+                env = lr->first;
             } else {
-                env = lr->value().second;
+                env = lr->second;
             }
         }
         res = env.copy();
@@ -118,7 +118,7 @@ struct FuncDispatch<BLLEVAL> {
     {
         if (!params.feedback.is_null()) return params.program.error(); // BLLEVAL does not delegate, so should not receive feedback
         if (auto s = params.args.convert<int64_t>(); s) {
-            int64_t env_index{s->value()};
+            int64_t env_index{*s};
             if (env_index == 0) {
                 return params.program.fin_value(params.program.m_alloc.nil());
             } else if (env_index > 0) {
@@ -129,15 +129,14 @@ struct FuncDispatch<BLLEVAL> {
                 return params.program.error(); // negative env is impossible
             }
         } else if (auto c = params.args.convert<std::pair<SafeRef,SafeRef>>(); c) {
-            auto [l, r] = std::move(c->value());
-            if (auto op = l.convert<int64_t>(); op) {
+            if (auto op = c->first.convert<int64_t>(); op) {
                 std::visit(util::Overloaded(
                     [&](FuncEnum auto funcid) {
-                        params.program.new_continuation(funcid, params.env.copy(), std::move(r));
+                        params.program.new_continuation(funcid, params.env.copy(), std::move(c->second));
                     },
                     [&](const std::monostate&) {
                         return params.program.error(); // invalid opcode
-                    }), lookup_opcode(op->value()));
+                    }), lookup_opcode(*op));
             } else {
                 return params.program.error(); // atom way too big to be an opcode
             }
@@ -155,15 +154,30 @@ struct FuncDispatch<QUOTE> {
     }
 };
 
+template<typename T>
+concept HasInitialState = requires(SafeAllocator a) {
+    { a.create(T::initial_state()) } -> std::same_as<SafeRef>;
+    { a.nil().convert<decltype(T::initial_state())>().set_value(T::initial_state()) };
+};
+
 template<typename Derived, typename StateType, typename ArgType=StateType>
 struct BinOpHelper {
     static void finish(Program& program, SafeView state)
+        requires HasInitialState<Derived>
     {
         if (state.is_null()) {
             program.fin_value(program.m_alloc.create(Derived::initial_state()));
         } else {
             program.fin_value(state.copy());
         }
+    }
+
+    static auto get_state(StepParams<Func>& params)
+        requires HasInitialState<Derived>
+    {
+        auto s = params.state.convert<StateType>();
+        if (!s) s.set_value(Derived::initial_state());
+        return s;
     }
 
     static bool idempotent(const StateType&, const ArgType&) { return false; }
@@ -179,19 +193,43 @@ struct BinOpHelper {
 
         auto a = params.feedback.convert<ArgType>();
         if (!a) return params.program.error();
-        auto s = params.state.convert_default<StateType>(Derived::initial_state());
+        auto s = Derived::get_state(params);
         if (!s) return params.program.error();
-        if (Derived::idempotent(s->value(), a->value())) {
+        if (Derived::idempotent(*s, *a)) {
             params.program.new_continuation(
                 params.func.copy(), params.args.copy());
             return;
         }
-        SafeRef r = Derived::binop(params.program, s->value(), a->value()); // work()
+        SafeRef r = Derived::binop(params.program, *s, *a); // work()
         if (r.is_null()) return; // error
         params.program.new_continuation(
             params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
                 params.funcid, params.env.copy().take(), r.take())),
             std::move(params.args));
+    }
+};
+
+template<>
+struct FuncDispatch<OP_RC> : public BinOpHelper<FuncDispatch<OP_RC>, SafeRef, SafeRef> {
+    static std::optional<SafeRef> get_state(StepParams<Func>& params)
+    {
+        if (params.state.is_null()) {
+            return std::optional{params.program.m_alloc.nil()};
+        } else {
+            return std::optional{params.state.copy()};
+        }
+    }
+    static SafeRef binop(Program& program, SafeRef& state, SafeRef& arg)
+    {
+        return program.m_alloc.cons(std::move(arg), std::move(state));
+    }
+    static void finish(Program& program, SafeView state)
+    {
+        if (state.is_null()) {
+            program.fin_value(program.m_alloc.nil());
+        } else {
+            program.fin_value(state.copy());
+        }
     }
 };
 
