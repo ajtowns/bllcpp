@@ -213,15 +213,15 @@ template<>
 struct FuncDispatch<OP_RC> : public BinOpHelper<FuncDispatch<OP_RC>, SafeRef, SafeRef> {
     static std::optional<SafeRef> get_state(StepParams<Func>& params)
     {
-        if (params.state.is_null()) {
-            return std::optional{params.program.m_alloc.nil()};
-        } else {
-            return std::optional{params.state.copy()};
-        }
+        return std::optional{params.state.copy()};
     }
     static SafeRef binop(Program& program, SafeRef& state, SafeRef& arg)
     {
-        return program.m_alloc.cons(std::move(arg), std::move(state));
+        if (state.is_null()) {
+            return std::move(arg);
+        } else {
+            return program.m_alloc.cons(std::move(arg), std::move(state));
+        }
     }
     static void finish(Program& program, SafeView state)
     {
