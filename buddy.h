@@ -24,6 +24,18 @@ static constexpr uint16_t CHUNK_COUNT{BLOCK_SIZE / 16};
 
 static_assert(((BLOCK_SIZE-1) & BLOCK_SIZE) == 0, "must be power of 2");
 
+// Default initialize an array, with explicit initializer
+template<typename T, std::size_t N>
+constexpr static inline std::array<T, N> make_filled_array(const T& def)
+{
+    // make def contingent on a param for use in fold expression
+    auto make_element = [&](auto) -> const T& { return def; };
+    // explicitly initialized
+    return [&]<std::size_t... I>(std::index_sequence<I...>) {
+        return std::array<T, N>{ make_element(I)... };
+    }(std::make_index_sequence<N>{});
+}
+
 struct Shift16
 {
     uint8_t sh{0};
@@ -429,18 +441,7 @@ private:
 
     std::vector<std::unique_ptr<Block>> m_blocks;
 
-    template<std::size_t N>
-    constexpr static std::array<Ref, N> make_ref_array()
-    {
-        // The lambda (or function) returns a T constructed from args, repeated N times
-        auto make_element = [&](auto) -> Ref { return NULLREF; };
-
-        return [&]<std::size_t... I>(std::index_sequence<I...>) {
-            return std::array<Ref, N>{ make_element(I)... };
-        }(std::make_index_sequence<N>{});
-    }
-
-    std::array<Ref, BLOCK_EXP.sh + 1> m_free{make_ref_array<BLOCK_EXP.sh + 1>()};
+    std::array<Ref, BLOCK_EXP.sh + 1> m_free{make_filled_array<Ref, BLOCK_EXP.sh + 1>(NULLREF)};
 
     Chunk* GetChunk(Ref ref) { return &(m_blocks[ref.block]->chunk[ref.chunk]); }
 

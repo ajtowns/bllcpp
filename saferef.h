@@ -114,6 +114,7 @@ public:
 
         SafeAllocator& Allocator() const { return m_safealloc; }
         SafeRef copy() const { return SafeRef{m_safealloc, m_safealloc.m_alloc.bumpref(m_ref)}; }
+        Ref take_view() const { return m_ref; }
 
         SafeRef nullref() const { return m_safealloc.nullref(); }
         bool is_null() const { return m_ref.is_null(); }

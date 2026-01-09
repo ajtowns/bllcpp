@@ -390,12 +390,69 @@ struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> 
     }
 };
 
+template<typename Derived, typename _ArgTup, size_t _MinArgs=std::tuple_size_v<_ArgTup>>
+struct FixOpHelper {
+    using ArgTup = _ArgTup;
+    static constexpr size_t MinArgs = _MinArgs;
+    static constexpr size_t MaxArgs = std::tuple_size_v<ArgTup>;
+
+    template<typename T> struct ArgTup2ConvTup;
+    template<typename... T> struct ArgTup2ConvTup<std::tuple<T...>> { using type = std::tuple<SafeConv::ConvertRef<T>...>; };
+
+    using ConvTup = ArgTup2ConvTup<ArgTup>;
+
+    static void step(StepParams<FuncCount>& params)
+    {
+        static_assert(std::derived_from<Derived, FixOpHelper<Derived,ArgTup,MinArgs>>, "Derived must inherit from FixOpHelper<Derived> (CRTP requirement)");
+        static_assert(MinArgs + std::tuple_size_v<decltype(Derived::Defaults)> == MaxArgs);
+
+        if (!params.feedback.is_null()) {
+            if (params.counter >= MaxArgs) return params.program.error(); // too many arguments
+            SafeRef new_state = params.program.m_alloc.cons(std::move(params.feedback), params.state.copy());
+            params.program.new_continuation(
+                params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
+                    params.funcid, params.env.copy().take(), new_state.take(), params.counter+1)),
+                std::move(params.args));
+            return;
+        }
+
+        if (blleval_helper(params)) return;
+        if (params.counter < MinArgs) return params.program.error(); // too few arguments
+
+        // finalisation
+        auto ref_arr = make_filled_array<SafeView,MaxArgs>(params.program.m_alloc.nullref());
+        SafeView backarg = params.state;
+        for (int64_t i = params.counter - 1; i >= 0; --i) {
+            if (auto cons = backarg.convert<std::pair<SafeView,SafeView>>(); cons) {
+                ref_arr[i] = cons->first;
+                backarg = cons->second;
+            } else {
+                return params.program.error(); // internal error, state/counter mismatch (counter high)
+            }
+        }
+        if (!backarg.is_null()) return params.program.error(); // internal error, state/counter mismatch (counter low)
+
+        auto tup_arr = [&]<size_t... Is>(std::index_sequence<Is...>) -> ConvTup {
+            return ConvTup{std::get<Is>(ref_arr).template convert<std::tuple_element_t<Is, ArgTup>>()...};
+        }(std::make_index_sequence<MaxArgs>{});
+
+        auto conv = [&]<size_t I>(std::integral_constant<size_t, I>) {
+            auto& x = std::get<I>(tup_arr);
+            if constexpr (I >= MinArgs) {
+                if (!x.has_value()) return std::get<I-MinArgs>(Derived::Defaults);
+            }
+            return *x;
+        };
+        auto result = [&]<size_t... Is>(std::index_sequence<Is...>) -> SafeRef {
+            return Derived::final(params.program, conv(std::integral_constant<size_t,Is>{})...);
+        }(std::make_index_sequence<MaxArgs>{});
+
+        return params.program.fin_value(std::move(result));
+    }
+};
+
 // XXX unimplemented functions, just to make it compile
 #if 0
-template<auto FUNC> requires std::same_as<decltype(FUNC), Func>
-struct FuncDispatch<FUNC> {
-    static void step(StepParams<Func>& ) { return; }
-};
 #endif
 template<auto FUNCCNT> requires std::same_as<decltype(FUNCCNT), FuncCount>
 struct FuncDispatch<FUNCCNT> {
