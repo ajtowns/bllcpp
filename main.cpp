@@ -253,6 +253,10 @@ void test11(Buddy::Allocator& raw_alloc)
     run(ltstr);
     alloc.DumpChunks();
 
+    Execution::Program listop{alloc, list(OP_LIST, list(OP_HEAD, q(list(9999, 1, 2)))), list(q(list(3, 4)), list())};
+    run(listop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());

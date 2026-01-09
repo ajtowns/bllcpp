@@ -12,6 +12,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <tuple>
 
 using namespace Buddy;
 
@@ -399,7 +400,11 @@ struct FixOpHelper {
     template<typename T> struct ArgTup2ConvTup;
     template<typename... T> struct ArgTup2ConvTup<std::tuple<T...>> { using type = std::tuple<SafeConv::ConvertRef<T>...>; };
 
-    using ConvTup = ArgTup2ConvTup<ArgTup>;
+    using ConvTup = ArgTup2ConvTup<ArgTup>::type;
+
+    // Derived:
+    //  static constexpr std::tuple<...> Defaults{...};
+    //  static SafeRef fixop(...);
 
     static void step(StepParams<FuncCount>& params)
     {
@@ -418,6 +423,7 @@ struct FixOpHelper {
 
         if (blleval_helper(params)) return;
         if (params.counter < MinArgs) return params.program.error(); // too few arguments
+        if (params.counter > MaxArgs) return params.program.error(); // internal error: too many arguments, should be caught earlier
 
         // finalisation
         auto ref_arr = make_filled_array<SafeView,MaxArgs>(params.program.m_alloc.nullref());
@@ -432,22 +438,55 @@ struct FixOpHelper {
         }
         if (!backarg.is_null()) return params.program.error(); // internal error, state/counter mismatch (counter low)
 
+        constexpr auto idx_seq = std::make_index_sequence<MaxArgs>{};
         auto tup_arr = [&]<size_t... Is>(std::index_sequence<Is...>) -> ConvTup {
             return ConvTup{std::get<Is>(ref_arr).template convert<std::tuple_element_t<Is, ArgTup>>()...};
-        }(std::make_index_sequence<MaxArgs>{});
+        }(idx_seq);
 
+        auto check = [&]<size_t... Is>(std::index_sequence<Is...>) -> bool {
+            return ((Is >= params.counter || std::get<Is>(tup_arr).has_value()) && ...);
+        };
+        if (!check(idx_seq)) return params.program.error(); // bad arguments
         auto conv = [&]<size_t I>(std::integral_constant<size_t, I>) {
-            auto& x = std::get<I>(tup_arr);
+            static_assert(I < MaxArgs);
             if constexpr (I >= MinArgs) {
-                if (!x.has_value()) return std::get<I-MinArgs>(Derived::Defaults);
+                if (I >= params.counter) {
+                    return std::get<I-MinArgs>(Derived::Defaults);
+                }
             }
-            return *x;
+            return *std::get<I>(tup_arr);
         };
         auto result = [&]<size_t... Is>(std::index_sequence<Is...>) -> SafeRef {
-            return Derived::final(params.program, conv(std::integral_constant<size_t,Is>{})...);
-        }(std::make_index_sequence<MaxArgs>{});
+            return Derived::fixop(params.program, conv(std::integral_constant<size_t,Is>{})...);
+        }(idx_seq);
 
         return params.program.fin_value(std::move(result));
+    }
+};
+
+template<>
+struct FuncDispatch<OP_HEAD> : public FixOpHelper<FuncDispatch<OP_HEAD>, std::tuple<std::pair<SafeView,SafeView>>> {
+    static constexpr std::tuple<> Defaults{};
+    static SafeRef fixop(Program&, const std::pair<SafeView,SafeView>& cons) {
+        return cons.first.copy();
+    }
+};
+
+template<>
+struct FuncDispatch<OP_TAIL> : public FixOpHelper<FuncDispatch<OP_TAIL>, std::tuple<std::pair<SafeView,SafeView>>> {
+    static constexpr std::tuple<> Defaults{};
+    static SafeRef fixop(Program&, const std::pair<SafeView,SafeView>& cons) {
+        return cons.second.copy();
+    }
+};
+
+template<>
+struct FuncDispatch<OP_LIST> : public FixOpHelper<FuncDispatch<OP_LIST>, std::tuple<SafeView>> {
+    static constexpr std::tuple<> Defaults{};
+    static SafeRef fixop(Program& program, const SafeView& arg) {
+        auto cons = arg.convert<std::pair<SafeView,SafeView>>();
+        bool r{cons.has_value()};
+        return program.m_alloc.create(r);
     }
 };
 
