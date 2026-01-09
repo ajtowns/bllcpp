@@ -391,11 +391,12 @@ struct FuncDispatch<OP_ADD> : public BinOpHelper<FuncDispatch<OP_ADD>, int64_t> 
 };
 
 // XXX unimplemented functions, just to make it compile
+#if 0
 template<auto FUNC> requires std::same_as<decltype(FUNC), Func>
 struct FuncDispatch<FUNC> {
     static void step(StepParams<Func>& ) { return; }
 };
-
+#endif
 template<auto FUNCCNT> requires std::same_as<decltype(FUNCCNT), FuncCount>
 struct FuncDispatch<FUNCCNT> {
     static void step(StepParams<FuncCount>& ) { return; }
@@ -405,6 +406,7 @@ template<auto FUNCEXT> requires std::same_as<decltype(FUNCEXT), FuncExt>
 struct FuncDispatch<FUNCEXT> {
     static void step(StepParams<FuncExt>& ) { return; }
 };
+
 } // anonymous namespace
 
 template<typename FE, template<FE> class Dispatcher>
@@ -599,221 +601,6 @@ struct FixOpcode<Func::OP_SUBSTR> : FixOpcodeBase<1,3>
 };
 
 template<>
-struct BinOpcode<Func::OP_RC>
-{
-    // state = nullptr -> finish=nil
-    // first arg replaces nullptr
-    // later args are cons(arg, state)
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        if (!state) {
-            return ElRef::copy_of(arg);
-        } else {
-            return arena.New<CONS>(ElRef::copy_of(arg), ElRef::copy_of(state));
-        }
-    }
-
-    static ElRef finish(Arena& arena, ElView state)
-    {
-        if (!state) {
-            return arena.nil();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_NOTALL>
-{
-    // state = nullptr at start; false
-    // any nil => state = one()
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        if (!state && arg.is_nil()) {
-            return arena.one();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-
-    static ElRef finish(Arena& arena, ElView state)
-    {
-        if (!state) {
-            return arena.nil();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_ADD>
-{
-    // state = nullptr at start; false
-    // any nil => state = one()
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        int64_t s{0};
-
-        if (state) {
-            if (auto st_a = state.get<ATOM>(); st_a) {
-                auto os = st_a->small_int();
-                if (!os) return arena.error(); // should be impossible
-                s = *os;
-            } else {
-                return arena.error();
-            }
-        }
-
-        if (auto arg_a = arg.get<ATOM>(); arg_a) {
-            auto a = arg_a->small_int();
-            if (!a) return arena.error();
-            if ((*a >= 0 && std::numeric_limits<int64_t>::max() - *a >= s)
-                || (*a < 0 && std::numeric_limits<int64_t>::min() - *a <= s))
-            {
-                return arena.New<ATOM>(s + *a);
-            }
-        }
-        return arena.error();
-    }
-
-    static ElRef finish(Arena& arena, ElView state)
-    {
-        if (!state) {
-            return arena.nil();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-
-    int64_t xdefault_state() { return 0; }
-    static ElRef xbinop(Arena& arena, int64_t state, int64_t arg)
-    {
-        if ((arg >= 0 && std::numeric_limits<int64_t>::max() - arg >= state)
-            || (arg < 0 && std::numeric_limits<int64_t>::min() - arg <= state))
-        {
-            return arena.New<ATOM>(state + arg);
-        } else {
-            return arena.error();
-        }
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_ALL>
-{
-    // state = nullptr at start; true
-    // any nil => state = nil()
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        if (!state && arg.is_nil()) {
-            return arena.nil();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-
-    static ElRef finish(Arena& arena, ElView state)
-    {
-        if (!state) {
-            return arena.one();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_ANY>
-{
-    // state = nullptr at start; false
-    // any not nil => state = one()
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        if (!state && !arg.is_nil()) {
-            return arena.one();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-
-    static ElRef finish(Arena& arena, ElView state)
-    {
-        if (!state) {
-            return arena.nil();
-        } else {
-            return ElRef::copy_of(state);
-        }
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_LT_STR>
-{
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        if (!arg.is<ATOM>()) return arena.error();
-        if (state && !state.is<ATOM>()) return ElRef::copy_of(state);
-        if (!state) return ElRef::copy_of(arg);
-
-        auto state_s = state.get<ATOM>()->data();
-        auto arg_s = arg.get<ATOM>()->data();
-
-        auto r = std::memcmp(state_s.data(), arg_s.data(), std::min(state_s.size(), arg_s.size()));
-
-        if (r > 0 || (r == 0 && state_s.size() >= arg_s.size())) {
-            return arena.New<CONS>(arena.nil(), arena.nil());
-        } else {
-            return ElRef::copy_of(arg);
-        }
-    }
-
-    static ElRef finish(Arena& arena, ElView state)
-    {
-        return arena.mkbool(!state || state.is<ATOM>());
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_STRLEN> : BinOpcodeBase
-{
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        auto st_a = state.get<ATOM>();
-        if (auto arg_a = arg.get<ATOM>(); arg_a) {
-            int64_t n = (st_a ? st_a->small_int_or(0) : 0);
-            return arena.mkel(n + arg_a->data().size());
-        } else {
-            return arena.error();
-        }
-    }
-};
-
-template<>
-struct BinOpcode<Func::OP_CAT> : BinOpcodeBase
-{
-    static ElRef binop(Arena& arena, ElView state, ElView arg)
-    {
-        auto st_a = state.get<ATOM>();
-        if (auto arg_a = arg.get<ATOM>(); st_a && arg_a) {
-            auto st_s = st_a->data();
-            auto arg_s = arg_a->data();
-
-            if (arg_s.size() == 0) return ElRef::copy_of(state);
-            if (st_s.size() == 0) return ElRef::copy_of(arg);
-            Span<uint8_t> res_s;
-            auto res = arena.New<ATOM>(arena, st_s.size() + arg_s.size(), res_s);
-            std::memcpy(res_s.data(), st_s.data(), st_s.size());
-            std::memcpy(res_s.data() + st_s.size(), arg_s.data(), arg_s.size());
-            return res.move();
-        } else {
-            return arena.error();
-        }
-    }
-};
-
-template<>
 struct FixOpcode<Func::OP_IF> : FixOpcodeBase<1,3>
 {
     static ElRef fixop(Arena& arena, ElView c, ElView t, ElView f)
@@ -841,24 +628,6 @@ static auto apply_suffix(Fn&& fn, A&& suffix, T&&... prefix)
         return fn(prefix..., args...);
     };
     return std::apply(call_suffix, suffix);
-}
-
-// returns true this function updated the continuation
-static bool blleval_helper(const ElConcept<FUNC>& ec, StepParams& sp)
-{
-    if (!sp.feedback.is_null()) return false; // caller has to deal with feedback
-
-    if (auto lr = sp.args.get<CONS>(); lr) {
-        auto l = lr->left();
-        auto r = lr->right();
-        sp.wi.new_continuation(ElRef::copy_of(ec), ElRef::copy_of(r), sp.env.copy());
-        sp.wi.new_continuation(Func::BLLEVAL, ElRef::copy_of(l), sp.env.move());
-        return true;
-    } else if (!sp.args.is_nil()) {
-        sp.wi.error();
-        return true;
-    }
-    return false; // caller has to deal with finalisation
 }
 
 static bool extcount_helper(const ElConcept<FUNC>& ec, const FuncExtCount& extcount, StepParams& sp, int min_args, int max_args)
@@ -923,8 +692,6 @@ struct FuncStep<FuncExt, Variant>
     }
 };
 
-template<ElConcept<FUNC>::V Variant>
-struct FuncStep<FuncExtNil, Variant> : FuncStep<FuncExt, Variant> { };
 #endif
 
 } // Execution namespace
