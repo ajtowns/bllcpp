@@ -402,6 +402,14 @@ struct FixOpHelper {
 
     using ConvTup = ArgTup2ConvTup<ArgTup>::type;
 
+    template<size_t I>
+    static auto& get_default(Program&)
+        requires (MinArgs + std::tuple_size_v<decltype(Derived::Defaults)> == MaxArgs)
+    {
+        static_assert(I >= MinArgs && I < MaxArgs);
+        return std::get<I-MinArgs>(Derived::Defaults);
+    }
+
     // Derived:
     //  static constexpr std::tuple<...> Defaults{...};
     //  static SafeRef fixop(...);
@@ -409,7 +417,7 @@ struct FixOpHelper {
     static void step(StepParams<FuncCount>& params)
     {
         static_assert(std::derived_from<Derived, FixOpHelper<Derived,ArgTup,MinArgs>>, "Derived must inherit from FixOpHelper<Derived> (CRTP requirement)");
-        static_assert(MinArgs + std::tuple_size_v<decltype(Derived::Defaults)> == MaxArgs);
+        static_assert(MinArgs <= MaxArgs);
 
         if (!params.feedback.is_null()) {
             if (params.counter >= MaxArgs) return params.program.error(); // too many arguments
@@ -451,7 +459,7 @@ struct FixOpHelper {
             static_assert(I < MaxArgs);
             if constexpr (I >= MinArgs) {
                 if (I >= params.counter) {
-                    return std::get<I-MinArgs>(Derived::Defaults);
+                    return Derived::template get_default<I>(params.program);
                 }
             }
             return *std::get<I>(tup_arr);
@@ -465,8 +473,20 @@ struct FixOpHelper {
 };
 
 template<>
+struct FuncDispatch<OP_IF> : public FixOpHelper<FuncDispatch<OP_IF>, std::tuple<bool, SafeView, SafeView>, 1> {
+    template<size_t I>
+    static SafeView get_default(Program& program)
+    {
+        return program.m_alloc.nullview();
+    }
+    static SafeRef fixop(Program& program, bool v, SafeView tval, SafeView fval) {
+        SafeView r = v ? tval : fval;
+        return (r.is_null() ? program.m_alloc.create(v) : r.copy());
+    }
+};
+
+template<>
 struct FuncDispatch<OP_HEAD> : public FixOpHelper<FuncDispatch<OP_HEAD>, std::tuple<std::pair<SafeView,SafeView>>> {
-    static constexpr std::tuple<> Defaults{};
     static SafeRef fixop(Program&, const std::pair<SafeView,SafeView>& cons) {
         return cons.first.copy();
     }
@@ -474,7 +494,6 @@ struct FuncDispatch<OP_HEAD> : public FixOpHelper<FuncDispatch<OP_HEAD>, std::tu
 
 template<>
 struct FuncDispatch<OP_TAIL> : public FixOpHelper<FuncDispatch<OP_TAIL>, std::tuple<std::pair<SafeView,SafeView>>> {
-    static constexpr std::tuple<> Defaults{};
     static SafeRef fixop(Program&, const std::pair<SafeView,SafeView>& cons) {
         return cons.second.copy();
     }
@@ -482,7 +501,6 @@ struct FuncDispatch<OP_TAIL> : public FixOpHelper<FuncDispatch<OP_TAIL>, std::tu
 
 template<>
 struct FuncDispatch<OP_LIST> : public FixOpHelper<FuncDispatch<OP_LIST>, std::tuple<SafeView>> {
-    static constexpr std::tuple<> Defaults{};
     static SafeRef fixop(Program& program, const SafeView& arg) {
         auto cons = arg.convert<std::pair<SafeView,SafeView>>();
         bool r{cons.has_value()};

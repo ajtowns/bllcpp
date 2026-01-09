@@ -257,6 +257,17 @@ void test11(Buddy::Allocator& raw_alloc)
     run(listop);
     alloc.DumpChunks();
 
+    Execution::Program ifop{alloc, list(OP_RC, 0,
+         list(OP_IF, 0, q(6), q(7)),
+         list(OP_IF, q(1), q(6), q(7)),
+         list(OP_IF, 0, q(6)),
+         list(OP_IF, q(1), q(6)),
+         list(OP_IF, 0),
+         list(OP_IF, q(1)),
+         list(OP_IF, q(7), q(8), q(9), q(10))), list()};
+    run(ifop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());

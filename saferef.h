@@ -140,6 +140,7 @@ public:
     SafeView view(const Ref& ref LIFETIMEBOUND) { return SafeView(*this, Ref{ref}); }
 
     SafeRef nullref() { return SafeRef(*this, Buddy::NULLREF); }
+    SafeView nullview() { return SafeView(*this, Buddy::NULLREF); }
 
     template<typename T>
     SafeRef create(Buddy::quoted_type<T> r)

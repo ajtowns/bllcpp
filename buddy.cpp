@@ -243,7 +243,11 @@ std::string to_string(Allocator& alloc, Ref ref, bool in_list)
                 } else if (sp.size() > 4 && is_all_printable(sp)) {
                     res = strprintf("\"%s\"", std::string(sp.begin(), sp.end()));
                 } else if (auto small = SmallInt(sp); small) {
-                    res = strprintf("%d[0x%s]", *small, HexStr(sp));
+                    if (sp.size() == 1) {
+                        res = strprintf("%d", *small);
+                    } else {
+                        res = strprintf("%d[0x%s]", *small, HexStr(sp));
+                    }
                 } else {
                     res = strprintf("0x%s", HexStr(sp));
                 }
