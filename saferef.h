@@ -129,7 +129,7 @@ public:
         }
 
         template<typename T>
-        auto convert() {
+        auto convert() const {
             return SafeConv::ConvertRef<T>(*this);
         }
     };
@@ -209,7 +209,7 @@ private:
 
 public:
     explicit ConvertRef(SafeRef&& ref) : m_ref{std::move(ref)} { }
-    explicit ConvertRef(SafeView&& view) : m_ref{view.copy()} { }
+    explicit ConvertRef(const SafeView& view) : m_ref{view.copy()} { }
     ConvertRef(ConvertRef&&) = default;
     ~ConvertRef() = default;
 
@@ -226,12 +226,12 @@ template<>
 class ConvertRef<SafeView>
 {
 private:
-    SafeRef m_ref;
     SafeView m_view;
+    SafeRef m_ref;
 
 public:
-    explicit ConvertRef(SafeRef&& ref) : m_ref{std::move(ref)}, m_view{m_ref} { }
-    explicit ConvertRef(SafeView&& view) : m_ref{view.nullref()}, m_view{view} { }
+    explicit ConvertRef(SafeRef&& ref) : m_view{ref}, m_ref{std::move(ref)} { }
+    explicit ConvertRef(const SafeView& view) : m_view{view}, m_ref{view.nullref()} { }
     ConvertRef(ConvertRef&&) = default;
     ~ConvertRef() = default;
 

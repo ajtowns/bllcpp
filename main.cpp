@@ -243,9 +243,19 @@ void test11(Buddy::Allocator& raw_alloc)
     std::cout << "test11 sexpr=" << sexpr.to_string() << "; env=" << env.to_string() << std::endl;
     Execution::Program p{alloc, std::move(sexpr), std::move(env)};
     run(p);
+    alloc.DumpChunks();
 
     Execution::Program x{alloc, list(OP_X, q(1), q(2)), list()};
     run(x);
+    alloc.DumpChunks();
+
+    Execution::Program ltstr{alloc, list(OP_LT_STR, q(1), q(4), q(0x0305), q(0x0108), q(0x0207), q(0x1010)), list()};
+    run(ltstr);
+    alloc.DumpChunks();
+
+    assert(env.is_null());
+    assert(one.is_null());
+    assert(sexpr.is_null());
 }
 
 int main(void)
@@ -266,6 +276,7 @@ int main(void)
     Buddy::Allocator alloc;
     test9(alloc);
     test10(alloc);
+    alloc.DumpChunks();
     test11(alloc);
     alloc.DumpChunks();
     return 0;

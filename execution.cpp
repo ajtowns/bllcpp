@@ -5,6 +5,7 @@
 #include <saferef.h>
 #include <overloaded.h>
 
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -201,7 +202,9 @@ struct BinOpHelper {
             return;
         }
         SafeRef r = Derived::binop(params.program, *s, *a); // work()
-        if (r.is_null()) return; // error
+        if (r.is_error()) {
+            return params.program.fin_value(std::move(r));
+        }
         params.program.new_continuation(
             params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
                 params.funcid, params.env.copy().take(), r.take())),
@@ -285,6 +288,47 @@ struct FuncDispatch<OP_STRLEN> : public BinOpHelper<FuncDispatch<OP_STRLEN>, int
     static SafeRef binop(Program& program, int64_t state, atomspan arg)
     {
         return program.m_alloc.create(state + static_cast<int64_t>(arg.size()));
+    }
+};
+
+template<>
+struct FuncDispatch<OP_LT_STR> : public BinOpHelper<FuncDispatch<OP_LT_STR>, SafeView, SafeView> {
+    static std::optional<SafeView> get_state(StepParams<Func>& params)
+    {
+        return params.state;
+    }
+
+    static bool idempotent(const SafeView& state, const SafeView&)
+    {
+        auto cons = state.convert<std::pair<SafeView,SafeView>>();
+        return cons.has_value();
+    }
+
+    static SafeRef binop(Program& program, SafeView state, SafeView arg)
+    {
+        if (auto argatom = arg.convert<atomspan>(); argatom) {
+            if (state.is_null()) return arg.copy();
+
+            if (auto stateatom = state.convert<atomspan>(); stateatom) {
+                if (std::lexicographical_compare(stateatom->begin(), stateatom->end(), argatom->begin(), argatom->end())) {
+                    return arg.copy();
+                }
+            }
+            return program.m_alloc.cons(program.m_alloc.nil(), program.m_alloc.nil());
+        } else {
+            return program.m_alloc.error(); // LT_STR only accepts atoms
+        }
+    }
+
+    static void finish(Program& program, SafeView state)
+    {
+        if (state.is_null()) {
+            program.fin_value(program.m_alloc.one());
+        } else if (auto a = state.convert<atomspan>(); a) {
+            program.fin_value(program.m_alloc.one());
+        } else {
+            program.fin_value(program.m_alloc.nil());
+        }
     }
 };
 
