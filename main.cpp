@@ -279,6 +279,16 @@ void test11(Buddy::Allocator& raw_alloc)
     run(substrop);
     alloc.DumpChunks();
 
+    Execution::Program applyop{alloc,
+         list(OP_APPLY,
+           list(OP_IF, list(OP_ADD, q(1), q(-1), q(7)),
+                list(QUOTE, OP_ADD, q(7), q(7)),
+                list(QUOTE, OP_ADD, q(6), q(6))
+           )),
+         list()};
+    run(applyop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());

@@ -412,7 +412,7 @@ struct FixOpHelper {
 
     // Derived:
     //  static constexpr std::tuple<...> Defaults{...};
-    //  static SafeRef fixop(...);
+    //  static SafeRef fixop(params, ...);
 
     static void step(StepParams<FuncCount>& params)
     {
@@ -465,10 +465,25 @@ struct FixOpHelper {
             return *std::get<I>(tup_arr);
         };
         auto result = [&]<size_t... Is>(std::index_sequence<Is...>) -> SafeRef {
-            return Derived::fixop(params.program, conv(std::integral_constant<size_t,Is>{})...);
+            return Derived::fixop(params, conv(std::integral_constant<size_t,Is>{})...);
         }(idx_seq);
 
         return params.program.fin_value(std::move(result));
+    }
+};
+
+template<>
+struct FuncDispatch<OP_APPLY> : public FixOpHelper<FuncDispatch<OP_APPLY>, std::tuple<SafeView, SafeView>, 1> {
+    template<size_t I>
+    static SafeView get_default(Program& program)
+    {
+        return program.m_alloc.nullview();
+    }
+    static SafeRef fixop(StepParams<FuncCount>& params, SafeView expr, SafeView env)
+    {
+        if (env.is_null()) env = params.env;
+        params.program.new_continuation(BLLEVAL, env.copy(), expr.copy());
+        return params.program.m_alloc.nullref();
     }
 };
 

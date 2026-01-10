@@ -34,7 +34,7 @@ enum class Func : uint16_t {
 };
 
 enum class FuncCount : uint16_t {
-    APPLY,
+    OP_APPLY,
     // SOFTFORK,
     OP_IF,
     OP_HEAD,

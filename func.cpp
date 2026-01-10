@@ -81,7 +81,7 @@ struct OpCodeInfo
 
 static constexpr OpCodeInfo OPCODE_INFO{ {
   { 0, QUOTE },
-  { 1, APPLY },
+  { 1, OP_APPLY },
   // { 2, SOFTFORK },
   // { 3, PARTIAL },
   { 4, OP_X },
@@ -165,7 +165,7 @@ std::string get_funcname(FuncVariant funcid)
         },
         [](FuncCount funcid) -> std::string {
             switch (funcid) {
-                OP_NAME(APPLY)
+                OP_NAME(OP_APPLY)
                 OP_NAME(OP_IF)
                 OP_NAME(OP_HEAD)
                 OP_NAME(OP_TAIL)
