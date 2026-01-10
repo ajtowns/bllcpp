@@ -125,10 +125,12 @@ static SafeRef getenv(SafeView env, int64_t env_index)
 }
 
 namespace {
-template<auto FUNC> struct FuncDispatch;
+template<auto FuncId> struct FuncDefinition;
+
+template<FuncEnum FE, FE FuncId> struct FuncDispatch;
 
 template<>
-struct FuncDispatch<BLLEVAL> {
+struct FuncDispatch<Func, BLLEVAL> {
     static void step(StepParams<Func>& params)
     {
         if (!params.feedback.is_null()) return params.program.error(); // BLLEVAL does not delegate, so should not receive feedback
@@ -162,59 +164,72 @@ struct FuncDispatch<BLLEVAL> {
 };
 
 template<>
-struct FuncDispatch<QUOTE> {
+struct FuncDispatch<Func, QUOTE> {
     static void step(StepParams<Func>& params)
     {
         params.program.fin_value(std::move(params.args));
     }
 };
 
-template<typename T>
-concept HasInitialState = requires(SafeAllocator a) {
-    { a.create(T::initial_state()) } -> std::same_as<SafeRef>;
-    { a.nil().convert<decltype(T::initial_state())>().set_value(T::initial_state()) };
-};
+template<Func FuncId>
+struct FuncDispatch<Func, FuncId> {
+    using Derived = FuncDefinition<FuncId>;
+    using StateType = Derived::StateType;
+    using ArgType = Derived::ArgType;
 
-template<Func FuncId, typename StateType, typename ArgType=StateType>
-struct BinOpHelper {
-    using Derived = FuncDispatch<FuncId>;
+    static constexpr bool HasInitialState = requires(SafeAllocator a) {
+        { a.create(Derived::initial_state()) } -> std::same_as<SafeRef>;
+        { a.nil().convert<decltype(Derived::initial_state())>().set_value(Derived::initial_state()) };
+   };
+
+    static constexpr bool HasIdempotent = requires(const StateType& s, const ArgType& a) { static_cast<bool>(Derived::idempotent(s,a)); };
+    static constexpr bool HasFinish = requires(Program& p, const StateType& s) { Derived::finish(p, s); };
+    static constexpr bool HasGetState = requires(StepParams<Func>& p) { StateType{*Derived::get_state(p)}; };
+
     static void finish(Program& program, SafeView state)
-        requires HasInitialState<Derived>
     {
-        if (state.is_null()) {
-            program.fin_value(program.m_alloc.create(Derived::initial_state()));
+        static_assert(HasFinish || HasInitialState);
+        if constexpr (HasFinish) {
+            return Derived::finish(program, state);
         } else {
-            program.fin_value(state.copy());
+            if (state.is_null()) {
+                program.fin_value(program.m_alloc.create(Derived::initial_state()));
+            } else {
+                program.fin_value(state.copy());
+            }
         }
     }
 
     static auto get_state(StepParams<Func>& params)
-        requires HasInitialState<Derived>
     {
-        auto s = params.state.convert<StateType>();
-        if (!s) s.set_value(Derived::initial_state());
-        return s;
+        static_assert(HasGetState || HasInitialState);
+        if constexpr (HasGetState) {
+            return Derived::get_state(params);
+        } else {
+            auto s = params.state.convert<StateType>();
+            if (!s) s.set_value(Derived::initial_state());
+            return s;
+        }
     }
-
-    static bool idempotent(const StateType&, const ArgType&) { return false; }
 
     static void step(StepParams<Func>& params)
     {
-        static_assert(std::derived_from<Derived, BinOpHelper<FuncId,StateType,ArgType>>, "Derived must inherit from BinOpHelper<FuncId> (CRTP requirement)");
-
         if (params.feedback.is_null()) {
-            if (!blleval_helper(params)) Derived::finish(params.program, params.state);
+            if (blleval_helper(params)) return;
+            finish(params.program, params.state);
             return;
         }
 
         auto a = params.feedback.convert<ArgType>();
         if (!a) return params.program.error();
-        auto s = Derived::get_state(params);
+        auto s = get_state(params);
         if (!s) return params.program.error();
-        if (Derived::idempotent(*s, *a)) {
-            params.program.new_continuation(
-                params.func.copy(), params.args.copy());
-            return;
+        if constexpr (HasIdempotent) {
+            if (Derived::idempotent(*s, *a)) {
+                params.program.new_continuation(
+                    params.func.copy(), params.args.copy());
+                return;
+            }
         }
         SafeRef r = Derived::binop(params.program, *s, *a); // work()
         if (r.is_error()) {
@@ -227,33 +242,11 @@ struct BinOpHelper {
     }
 };
 
-template<FuncExt FuncId, typename State, typename ArgType>
-struct ExtOpHelper {
-    using Derived = FuncDispatch<FuncId>;
-    static void step(StepParams<FuncExt>& params)
-    {
-        static_assert(std::derived_from<Derived, ExtOpHelper<FuncId,State,ArgType>>, "Derived must inherit from ExtOpHelper<FuncId> (CRTP requirement)");
-
-        if (params.feedback.is_null()) {
-            if (!blleval_helper(params)) Derived::finish(params.program, static_cast<const State*>(params.state));
-            return;
-        }
-
-        auto a = params.feedback.convert<ArgType>();
-        if (!a) return params.program.error();
-
-        State* r = Derived::extop(params.program, static_cast<const State*>(params.state), *a); // work()
-        if (r == nullptr) return params.program.error(); // internal failure
-
-        params.program.new_continuation(
-            params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
-                params.funcid, params.env.copy().take(), static_cast<const void*>(r))),
-            std::move(params.args));
-    }
-};
-
 template<>
-struct FuncDispatch<OP_PARTIAL> : public BinOpHelper<OP_PARTIAL, SafeView, SafeView> {
+struct FuncDefinition<OP_PARTIAL> {
+    using StateType = SafeView;
+    using ArgType = SafeView;
+
     static auto get_state(StepParams<Func>& params) { return params.state.convert<SafeView>(); }
     static SafeRef binop(Program& program, const SafeView& state, const SafeView&)
     {
@@ -289,7 +282,10 @@ struct FuncDispatch<OP_PARTIAL> : public BinOpHelper<OP_PARTIAL, SafeView, SafeV
 };
 
 template<>
-struct FuncDispatch<OP_X> : public BinOpHelper<OP_X, SafeView, SafeView> {
+struct FuncDefinition<OP_X> {
+    using StateType = SafeView;
+    using ArgType = SafeView;
+
     static bool idempotent(const SafeView&, const SafeView&) { return true; }
 
     static std::optional<SafeView> get_state(StepParams<Func>& params)
@@ -305,7 +301,10 @@ struct FuncDispatch<OP_X> : public BinOpHelper<OP_X, SafeView, SafeView> {
 };
 
 template<>
-struct FuncDispatch<OP_RC> : public BinOpHelper<OP_RC, SafeRef, SafeRef> {
+struct FuncDefinition<OP_RC> {
+    using StateType = SafeRef;
+    using ArgType = SafeRef;
+
     static std::optional<SafeRef> get_state(StepParams<Func>& params)
     {
         return std::optional{params.state.copy()};
@@ -329,7 +328,10 @@ struct FuncDispatch<OP_RC> : public BinOpHelper<OP_RC, SafeRef, SafeRef> {
 };
 
 template<>
-struct FuncDispatch<OP_NOTALL> : public BinOpHelper<OP_NOTALL, bool> {
+struct FuncDefinition<OP_NOTALL> {
+    using StateType = bool;
+    using ArgType = bool;
+
     static bool initial_state() { return false; }
     static SafeRef binop(Program& program, bool state, bool arg)
     {
@@ -338,7 +340,10 @@ struct FuncDispatch<OP_NOTALL> : public BinOpHelper<OP_NOTALL, bool> {
 };
 
 template<>
-struct FuncDispatch<OP_ALL> : public BinOpHelper<OP_ALL, bool> {
+struct FuncDefinition<OP_ALL> {
+    using StateType = bool;
+    using ArgType = bool;
+
     static bool initial_state() { return true; }
     static SafeRef binop(Program& program, bool state, bool arg)
     {
@@ -347,7 +352,10 @@ struct FuncDispatch<OP_ALL> : public BinOpHelper<OP_ALL, bool> {
 };
 
 template<>
-struct FuncDispatch<OP_ANY> : public BinOpHelper<OP_ANY, bool> {
+struct FuncDefinition<OP_ANY> {
+    using StateType = bool;
+    using ArgType = bool;
+
     static bool initial_state() { return false; }
     static SafeRef binop(Program& program, bool state, bool arg)
     {
@@ -356,7 +364,10 @@ struct FuncDispatch<OP_ANY> : public BinOpHelper<OP_ANY, bool> {
 };
 
 template<>
-struct FuncDispatch<OP_STRLEN> : public BinOpHelper<OP_STRLEN, int64_t, atomspan> {
+struct FuncDefinition<OP_STRLEN> {
+    using StateType = int64_t;
+    using ArgType = atomspan;
+
     static int64_t initial_state() { return 0; }
 
     static bool idempotent(int64_t, const atomspan& arg) { return arg.size() == 0; }
@@ -368,7 +379,10 @@ struct FuncDispatch<OP_STRLEN> : public BinOpHelper<OP_STRLEN, int64_t, atomspan
 };
 
 template<>
-struct FuncDispatch<OP_LT_STR> : public BinOpHelper<OP_LT_STR, SafeView, SafeView> {
+struct FuncDefinition<OP_LT_STR> {
+    using StateType = SafeView;
+    using ArgType = SafeView;
+
     static std::optional<SafeView> get_state(StepParams<Func>& params)
     {
         return params.state;
@@ -409,7 +423,10 @@ struct FuncDispatch<OP_LT_STR> : public BinOpHelper<OP_LT_STR, SafeView, SafeVie
 };
 
 template<>
-struct FuncDispatch<OP_CAT> : public BinOpHelper<OP_CAT, atomspan> {
+struct FuncDefinition<OP_CAT> {
+    using StateType = atomspan;
+    using ArgType = atomspan;
+
     static atomspan initial_state() { return {}; }
 
     static bool idempotent(const atomspan&, const atomspan& arg) { return arg.size() == 0; }
@@ -437,7 +454,10 @@ struct FuncDispatch<OP_CAT> : public BinOpHelper<OP_CAT, atomspan> {
 };
 
 template<>
-struct FuncDispatch<OP_ADD> : public BinOpHelper<OP_ADD, int64_t> {
+struct FuncDefinition<OP_ADD> {
+    using StateType = int64_t;
+    using ArgType = int64_t;
+
     static int64_t initial_state() { return 0; }
 
     static bool idempotent(int64_t, int64_t arg) { return arg == 0; }
@@ -454,12 +474,14 @@ struct FuncDispatch<OP_ADD> : public BinOpHelper<OP_ADD, int64_t> {
     }
 };
 
-template<FuncCount FuncId, typename _ArgTup, size_t _MinArgs=std::tuple_size_v<_ArgTup>>
-struct FixOpHelper {
-    using Derived = FuncDispatch<FuncId>;
-    using ArgTup = _ArgTup;
-    static constexpr size_t MinArgs = _MinArgs;
+template<FuncCount FuncId>
+struct FuncDispatch<FuncCount, FuncId> {
+    using Derived = FuncDefinition<FuncId>;
+
+    using ArgTup = Derived::ArgTup;
+    static constexpr size_t MinArgs = Derived::MinArgs;
     static constexpr size_t MaxArgs = std::tuple_size_v<ArgTup>;
+    static_assert(MinArgs <= MaxArgs);
 
     template<typename T> struct ArgTup2ConvTup;
     template<typename... T> struct ArgTup2ConvTup<std::tuple<T...>> { using type = std::tuple<SafeConv::ConvertRef<T>...>; };
@@ -467,11 +489,18 @@ struct FixOpHelper {
     using ConvTup = ArgTup2ConvTup<ArgTup>::type;
 
     template<size_t I>
-    static auto& get_default(Program&)
-        requires (MinArgs + std::tuple_size_v<decltype(Derived::Defaults)> == MaxArgs)
+    static constexpr bool HasGetDefault = requires(Program& p) { Derived::template get_default<I>(p); };
+
+    template<size_t I>
+    static auto get_default(Program& program)
     {
-        static_assert(I >= MinArgs && I < MaxArgs);
-        return std::get<I-MinArgs>(Derived::Defaults);
+        if constexpr (HasGetDefault<I>) {
+            return Derived::template get_default<I>(program);
+        } else {
+            static_assert(MinArgs + std::tuple_size_v<decltype(Derived::Defaults)> == MaxArgs);
+            static_assert(I >= MinArgs && I < MaxArgs);
+            return std::get<I-MinArgs>(Derived::Defaults);
+        }
     }
 
     // Derived:
@@ -480,9 +509,6 @@ struct FixOpHelper {
 
     static void step(StepParams<FuncCount>& params)
     {
-        static_assert(std::derived_from<Derived, FixOpHelper<FuncId,ArgTup,MinArgs>>, "Derived must inherit from FixOpHelper<FuncId> (CRTP requirement)");
-        static_assert(MinArgs <= MaxArgs);
-
         if (!params.feedback.is_null()) {
             if (params.counter >= MaxArgs) return params.program.error(); // too many arguments
             SafeRef new_state = params.program.m_alloc.cons(std::move(params.feedback), params.state.copy());
@@ -523,7 +549,7 @@ struct FixOpHelper {
             static_assert(I < MaxArgs);
             if constexpr (I >= MinArgs) {
                 if (I >= params.counter) {
-                    return Derived::template get_default<I>(params.program);
+                    return get_default<I>(params.program);
                 }
             }
             return *std::get<I>(tup_arr);
@@ -537,12 +563,16 @@ struct FixOpHelper {
 };
 
 template<>
-struct FuncDispatch<OP_APPLY> : public FixOpHelper<OP_APPLY, std::tuple<SafeView, SafeView>, 1> {
+struct FuncDefinition<OP_APPLY> {
+    using ArgTup = std::tuple<SafeView, SafeView>;
+    static constexpr size_t MinArgs = 1;
+
     template<size_t I>
     static SafeView get_default(Program& program)
     {
         return program.m_alloc.nullview();
     }
+
     static SafeRef fixop(StepParams<FuncCount>& params, SafeView expr, SafeView env)
     {
         if (env.is_null()) env = params.env;
@@ -552,7 +582,10 @@ struct FuncDispatch<OP_APPLY> : public FixOpHelper<OP_APPLY, std::tuple<SafeView
 };
 
 template<>
-struct FuncDispatch<OP_IF> : public FixOpHelper<OP_IF, std::tuple<bool, SafeView, SafeView>, 1> {
+struct FuncDefinition<OP_IF> {
+    using ArgTup = std::tuple<bool, SafeView, SafeView>;
+    static constexpr size_t MinArgs = 1;
+
     template<size_t I>
     static SafeView get_default(Program& program)
     {
@@ -565,21 +598,30 @@ struct FuncDispatch<OP_IF> : public FixOpHelper<OP_IF, std::tuple<bool, SafeView
 };
 
 template<>
-struct FuncDispatch<OP_HEAD> : public FixOpHelper<OP_HEAD, std::tuple<std::pair<SafeView,SafeView>>> {
+struct FuncDefinition<OP_HEAD> {
+    using ArgTup = std::tuple<std::pair<SafeView,SafeView>>;
+    static constexpr size_t MinArgs = 1;
+
     static SafeRef fixop(StepParams<FuncCount>&, const std::pair<SafeView,SafeView>& cons) {
         return cons.first.copy();
     }
 };
 
 template<>
-struct FuncDispatch<OP_TAIL> : public FixOpHelper<OP_TAIL, std::tuple<std::pair<SafeView,SafeView>>> {
+struct FuncDefinition<OP_TAIL> {
+    using ArgTup = std::tuple<std::pair<SafeView,SafeView>>;
+    static constexpr size_t MinArgs = 1;
+
     static SafeRef fixop(StepParams<FuncCount>&, const std::pair<SafeView,SafeView>& cons) {
         return cons.second.copy();
     }
 };
 
 template<>
-struct FuncDispatch<OP_LIST> : public FixOpHelper<OP_LIST, std::tuple<SafeView>> {
+struct FuncDefinition<OP_LIST> {
+    using ArgTup = std::tuple<SafeView>;
+    static constexpr size_t MinArgs = 1;
+
     static SafeRef fixop(StepParams<FuncCount>& params, const SafeView& arg) {
         auto cons = arg.convert<std::pair<SafeView,SafeView>>();
         bool r{cons.has_value()};
@@ -588,7 +630,10 @@ struct FuncDispatch<OP_LIST> : public FixOpHelper<OP_LIST, std::tuple<SafeView>>
 };
 
 template<>
-struct FuncDispatch<OP_SUBSTR> : public FixOpHelper<OP_SUBSTR, std::tuple<atomspan,int64_t,int64_t>, 1> {
+struct FuncDefinition<OP_SUBSTR> {
+    using ArgTup = std::tuple<atomspan,int64_t,int64_t>;
+    static constexpr size_t MinArgs = 1;
+
     static constexpr std::tuple<int64_t,int64_t> Defaults{0,std::numeric_limits<int64_t>::max()};
     static SafeRef fixop(StepParams<FuncCount>& params, atomspan sp, int64_t start, int64_t size)
     {
@@ -612,8 +657,38 @@ inline T* DupeObject(const T* old)
     }
 }
 
+template<FuncExt FuncId>
+struct FuncDispatch<FuncExt, FuncId> {
+    using Derived = FuncDefinition<FuncId>;
+    using State = Derived::State;
+    using ArgType = Derived::ArgType;
+
+    static void step(StepParams<FuncExt>& params)
+    {
+        if (params.feedback.is_null()) {
+            if (blleval_helper(params)) return;
+            Derived::finish(params.program, static_cast<const State*>(params.state));
+            return;
+        }
+
+        auto a = params.feedback.convert<ArgType>();
+        if (!a) return params.program.error();
+
+        State* r = Derived::extop(params.program, static_cast<const State*>(params.state), *a); // work()
+        if (r == nullptr) return params.program.error(); // internal failure
+
+        params.program.new_continuation(
+            params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
+                params.funcid, params.env.copy().take(), static_cast<const void*>(r))),
+            std::move(params.args));
+    }
+};
+
 template<>
-struct FuncDispatch<OP_SHA256> : public ExtOpHelper<OP_SHA256, CSHA256, atomspan> {
+struct FuncDefinition<OP_SHA256> {
+    using State = CSHA256;
+    using ArgType = atomspan;
+
     static CSHA256* extop(Program&, const CSHA256* state, atomspan arg)
     {
         CSHA256* x = DupeObject<CSHA256>(state);
@@ -632,10 +707,10 @@ struct FuncDispatch<OP_SHA256> : public ExtOpHelper<OP_SHA256, CSHA256, atomspan
     }
 };
 
-template<typename FE, template<FE> class Dispatcher>
+template<typename FE, template<typename _FE, _FE> class Dispatcher>
 static constexpr auto step_dispatch_table() {
     return []<size_t... I>(std::index_sequence<I...>) -> std::array<void(*)(StepParams<FE>&),FuncEnumSize<FE>> {
-        return { [](StepParams<FE>& params) { Dispatcher<static_cast<FE>(I)>::step(params); }... };
+        return { [](StepParams<FE>& params) { Dispatcher<FE, static_cast<FE>(I)>::step(params); }... };
     }(std::make_index_sequence<FuncEnumSize<FE>>{});
 }
 
