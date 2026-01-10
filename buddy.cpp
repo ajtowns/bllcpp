@@ -125,7 +125,7 @@ void Allocator::deallocate(Ref&& ref)
     MakeFree(r, sz);
 }
 
-void Allocator::deref(Ref&& ref)
+void Allocator::_deref(Ref&& ref)
 {
     Ref work{ref};
     Ref todo{NULLREF};

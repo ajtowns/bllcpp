@@ -64,7 +64,8 @@ public:
         SafeRef nullref() const { return m_safealloc.nullref(); }
         bool is_null() const { return m_ref.is_null(); }
 
-        bool is_error() { return m_safealloc.Allocator().is_error(m_ref); }
+        bool is_error() const { return m_safealloc.Allocator().is_error(m_ref); }
+        bool is_funcy() const { return m_safealloc.Allocator().is_funcy(m_ref); }
         std::string to_string() { return Buddy::to_string(m_safealloc.m_alloc, m_ref); }
 
         template<typename Fn>
@@ -119,7 +120,8 @@ public:
         SafeRef nullref() const { return m_safealloc.nullref(); }
         bool is_null() const { return m_ref.is_null(); }
 
-        bool is_error() { return m_safealloc.Allocator().is_error(m_ref); }
+        bool is_error() const { return m_safealloc.Allocator().is_error(m_ref); }
+        bool is_funcy() const { return m_safealloc.Allocator().is_funcy(m_ref); }
         std::string to_string() { return Buddy::to_string(m_safealloc.m_alloc, m_ref); }
 
         template<typename Fn>

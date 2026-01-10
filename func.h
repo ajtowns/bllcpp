@@ -11,7 +11,7 @@ namespace Buddy {
 enum class Func : uint16_t {
     BLLEVAL, // internal only, no opcode
     QUOTE,
-    // PARTIAL,
+    OP_PARTIAL,
     OP_X,
     OP_RC,
     // OP_BINTREE,
@@ -65,7 +65,7 @@ concept FuncEnum =
     std::is_same_v<T, FuncExt>;
 
 template<FuncEnum FE> struct FuncEnum_help;
-template<> struct FuncEnum_help<Func> { static constexpr size_t value = 11; };
+template<> struct FuncEnum_help<Func> { static constexpr size_t value = 12; };
 template<> struct FuncEnum_help<FuncCount> { static constexpr size_t value = 6; };
 template<> struct FuncEnum_help<FuncExt> { static constexpr size_t value = 1; };
 

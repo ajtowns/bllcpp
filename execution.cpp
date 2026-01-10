@@ -251,6 +251,42 @@ struct ExtOpHelper {
 };
 
 template<>
+struct FuncDispatch<OP_PARTIAL> : public BinOpHelper<FuncDispatch<OP_PARTIAL>, SafeView, SafeView> {
+    static auto get_state(StepParams<Func>& params) { return params.state.convert<SafeView>(); }
+    static SafeRef binop(Program& program, const SafeView& state, const SafeView&)
+    {
+        SafeRef new_state = state.nullref();
+        new_state = program.m_alloc.error(); // XXX unimplementable :(
+        return new_state;
+#if 0
+        if (state.is_null()) {
+            if (arg.is_funcy()) {
+                new_state = state.copy(); // result of a previous partial
+            } else if (auto op = arg.convert<int64_t>(); op) {
+                std::visit(util::Overloaded(
+                    [&](FuncEnum auto funcid) {
+                        new_state = program.m_alloc.create(funcid, params.env.copy()); // params vs program
+                    },
+                    [&](const std::monostate&) {
+                        new_state = program.m_alloc.error(); // invalid opcode
+                    }), lookup_opcode(*op));
+            } else {
+                new_state = program.m_alloc.error(); // not something function-like
+            }
+        } else {
+            new_state = program.m_alloc.error(); // XXX unimplementable :(
+        }
+        return new_state;
+#endif
+    }
+
+    static void finish(Program& program, SafeView)
+    {
+        program.error(); // XXX
+    }
+};
+
+template<>
 struct FuncDispatch<OP_X> : public BinOpHelper<FuncDispatch<OP_X>, SafeView, SafeView> {
     static bool idempotent(const SafeView&, const SafeView&) { return true; }
 
@@ -630,8 +666,8 @@ void Program::step()
     Ref feedback{pop_feedback()};
     Continuation cont{pop_continuation()};
 
+    Ref func{cont.func.take()};
     Ref args{cont.args.take()};
-    Ref func{cont.func.take()}; // funcid, state, environment
 
     rawalloc.dispatch(func, util::Overloaded(
         [&](const TagView<Tag::FUNC,16>& f) {

@@ -469,6 +469,8 @@ private:
 
     std::array<Ref,2> _nilone = {NULLREF, NULLREF};
 
+    void _deref(Ref&& ref);
+
 public:
     Allocator();
 
@@ -603,7 +605,7 @@ public:
         return res;
     }
 
-    void deref(Ref&& ref);
+    void deref(Ref&& ref) { if (!ref.is_null()) _deref(std::move(ref)); }
 
     std::tuple<std::optional<Tag>, std::span<uint8_t>, Shift16> lookup(Ref ref)
     {
@@ -631,6 +633,16 @@ public:
         bool res{false};
         dispatch(ref, util::Overloaded(
             [&](const TagView<Tag::ERROR,16>&) { res = true; },
+            [](const auto&) { }
+        ));
+        return res;
+    }
+
+    bool is_funcy(Ref ref)
+    {
+        bool res{false};
+        dispatch(ref, util::Overloaded(
+            [&](const FuncyTagView auto&) { res = true; },
             [](const auto&) { }
         ));
         return res;

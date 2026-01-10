@@ -83,7 +83,7 @@ static constexpr OpCodeInfo OPCODE_INFO{ {
   { 0, QUOTE },
   { 1, OP_APPLY },
   // { 2, SOFTFORK },
-  // { 3, PARTIAL },
+  { 3, OP_PARTIAL },
   { 4, OP_X },
   { 5, OP_IF },
   { 6, OP_RC },
@@ -152,6 +152,7 @@ std::string get_funcname(FuncVariant funcid)
             switch (funcid) {
                 OP_NAME(BLLEVAL)
                 OP_NAME(QUOTE)
+                OP_NAME(OP_PARTIAL)
                 OP_NAME(OP_X)
                 OP_NAME(OP_RC)
                 OP_NAME(OP_NOTALL)
