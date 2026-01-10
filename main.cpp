@@ -289,6 +289,13 @@ void test11(Buddy::Allocator& raw_alloc)
     run(applyop);
     alloc.DumpChunks();
 
+    const auto xxx = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+    Execution::Program shaop{alloc,
+         list(OP_SHA256, q(xxx), q(xxx), q(xxx)),
+         list()};
+    run(shaop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());

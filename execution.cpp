@@ -4,6 +4,7 @@
 #include <buddy.h>
 #include <saferef.h>
 #include <overloaded.h>
+#include <crypto/sha256.h>
 
 #include <algorithm>
 #include <concepts>
@@ -221,6 +222,30 @@ struct BinOpHelper {
         params.program.new_continuation(
             params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
                 params.funcid, params.env.copy().take(), r.take())),
+            std::move(params.args));
+    }
+};
+
+template<typename Derived, typename State, typename ArgType>
+struct ExtOpHelper {
+    static void step(StepParams<FuncExt>& params)
+    {
+        static_assert(std::derived_from<Derived, ExtOpHelper<Derived,State,ArgType>>, "Derived must inherit from BinOpHelper<Derived> (CRTP requirement)");
+
+        if (params.feedback.is_null()) {
+            if (!blleval_helper(params)) Derived::finish(params.program, static_cast<const State*>(params.state));
+            return;
+        }
+
+        auto a = params.feedback.convert<ArgType>();
+        if (!a) return params.program.error();
+
+        State* r = Derived::extop(params.program, static_cast<const State*>(params.state), *a); // work()
+        if (r == nullptr) return params.program.error(); // internal failure
+
+        params.program.new_continuation(
+            params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
+                params.funcid, params.env.copy().take(), static_cast<const void*>(r))),
             std::move(params.args));
     }
 };
@@ -494,44 +519,77 @@ struct FuncDispatch<OP_IF> : public FixOpHelper<FuncDispatch<OP_IF>, std::tuple<
     {
         return program.m_alloc.nullview();
     }
-    static SafeRef fixop(Program& program, bool v, SafeView tval, SafeView fval) {
+    static SafeRef fixop(StepParams<FuncCount>& params, bool v, SafeView tval, SafeView fval) {
         SafeView r = v ? tval : fval;
-        return (r.is_null() ? program.m_alloc.create(v) : r.copy());
+        return (r.is_null() ? params.program.m_alloc.create(v) : r.copy());
     }
 };
 
 template<>
 struct FuncDispatch<OP_HEAD> : public FixOpHelper<FuncDispatch<OP_HEAD>, std::tuple<std::pair<SafeView,SafeView>>> {
-    static SafeRef fixop(Program&, const std::pair<SafeView,SafeView>& cons) {
+    static SafeRef fixop(StepParams<FuncCount>&, const std::pair<SafeView,SafeView>& cons) {
         return cons.first.copy();
     }
 };
 
 template<>
 struct FuncDispatch<OP_TAIL> : public FixOpHelper<FuncDispatch<OP_TAIL>, std::tuple<std::pair<SafeView,SafeView>>> {
-    static SafeRef fixop(Program&, const std::pair<SafeView,SafeView>& cons) {
+    static SafeRef fixop(StepParams<FuncCount>&, const std::pair<SafeView,SafeView>& cons) {
         return cons.second.copy();
     }
 };
 
 template<>
 struct FuncDispatch<OP_LIST> : public FixOpHelper<FuncDispatch<OP_LIST>, std::tuple<SafeView>> {
-    static SafeRef fixop(Program& program, const SafeView& arg) {
+    static SafeRef fixop(StepParams<FuncCount>& params, const SafeView& arg) {
         auto cons = arg.convert<std::pair<SafeView,SafeView>>();
         bool r{cons.has_value()};
-        return program.m_alloc.create(r);
+        return params.program.m_alloc.create(r);
     }
 };
 
 template<>
 struct FuncDispatch<OP_SUBSTR> : public FixOpHelper<FuncDispatch<OP_SUBSTR>, std::tuple<atomspan,int64_t,int64_t>, 1> {
     static constexpr std::tuple<int64_t,int64_t> Defaults{0,std::numeric_limits<int64_t>::max()};
-    static SafeRef fixop(Program& program, atomspan sp, int64_t start, int64_t size)
+    static SafeRef fixop(StepParams<FuncCount>& params, atomspan sp, int64_t start, int64_t size)
     {
         start = std::clamp<int64_t>(start, -static_cast<int64_t>(sp.size()), static_cast<int64_t>(sp.size()));
         if (start < 0) start = sp.size() + start;
         size = std::clamp<int64_t>(size, 0, sp.size() - start);
-        return program.m_alloc.create(sp.subspan(start, size));
+        return params.program.m_alloc.create(sp.subspan(start, size));
+    }
+};
+
+template<typename T>
+inline T* DupeObject(const T* old)
+{
+    void* x = std::malloc(sizeof(T));
+    if (old != nullptr) {
+        std::memcpy(x, old, sizeof(T));
+        return static_cast<T*>(x);
+    } else {
+        T* res = new(x) T;
+        return res;
+    }
+}
+
+template<>
+struct FuncDispatch<OP_SHA256> : public ExtOpHelper<FuncDispatch<OP_SHA256>, CSHA256, atomspan> {
+    static CSHA256* extop(Program&, const CSHA256* state, atomspan arg)
+    {
+        CSHA256* x = DupeObject<CSHA256>(state);
+        x->Write(arg.data(), arg.size());
+        return x;
+    }
+
+    static void finish(Program& program, const CSHA256* state)
+    {
+        static const CSHA256 init_state{};
+        if (state == nullptr) state = &init_state;
+        CSHA256 fin{*state};
+        std::array<uint8_t, 32> res;
+        fin.Finalize(res.data());
+        program.fin_value(program.m_alloc.create(std::span(res)));
     }
 };
 
