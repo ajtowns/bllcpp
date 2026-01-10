@@ -212,33 +212,42 @@ struct FuncDispatch<Func, FuncId> {
         }
     }
 
-    static void step(StepParams<Func>& params)
+    static SafeRef partial_step(StepParams<Func>& params)
     {
-        if (params.feedback.is_null()) {
-            if (blleval_helper(params)) return;
-            finish(params.program, params.state);
-            return;
-        }
 
         auto a = params.feedback.convert<ArgType>();
-        if (!a) return params.program.error();
+        if (!a) return params.program.m_alloc.error();
         auto s = get_state(params);
-        if (!s) return params.program.error();
+        if (!s) return params.program.m_alloc.error();
         if constexpr (HasIdempotent) {
             if (Derived::idempotent(*s, *a)) {
-                params.program.new_continuation(
-                    params.func.copy(), params.args.copy());
-                return;
+                return params.func.copy();
             }
         }
-        SafeRef r = Derived::binop(params.program, *s, *a); // work()
+        SafeRef r = Derived::binop(params.program, *s, *a);
         if (r.is_error()) {
-            return params.program.fin_value(std::move(r));
+            return r;
+        } else {
+            return params.program.m_alloc.takeref(
+                    params.program.m_alloc.Allocator().create_func(
+                        params.funcid, params.env.copy().take(), r.take()));
         }
-        params.program.new_continuation(
-            params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
-                params.funcid, params.env.copy().take(), r.take())),
-            std::move(params.args));
+    }
+
+    static void step(StepParams<Func>& params)
+    {
+        if (!params.feedback.is_null()) {
+            SafeRef r = partial_step(params);
+            if (r.is_error()) {
+                params.program.fin_value(std::move(r));
+            } else {
+                params.program.new_continuation(std::move(r), std::move(params.args));
+            }
+        } else if (blleval_helper(params)) {
+            // blleval handled it
+        } else {
+            finish(params.program, params.state);
+        }
     }
 };
 
