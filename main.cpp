@@ -268,6 +268,17 @@ void test11(Buddy::Allocator& raw_alloc)
     run(ifop);
     alloc.DumpChunks();
 
+    Execution::Program substrop{alloc, list(OP_RC, 0,
+         list(OP_SUBSTR, q("hello, world")),
+         list(OP_SUBSTR, q("hello, world"), q(0)),
+         list(OP_SUBSTR, q("hello, world"), q(1)),
+         list(OP_SUBSTR, q("hello, world"), q(-1)),
+         list(OP_SUBSTR, q("hello, world"), q(3), q(5)),
+         list(OP_SUBSTR, q("hello, world"), q(-6), q(5))
+         ), list()};
+    run(substrop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());

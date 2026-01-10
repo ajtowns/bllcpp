@@ -508,6 +508,18 @@ struct FuncDispatch<OP_LIST> : public FixOpHelper<FuncDispatch<OP_LIST>, std::tu
     }
 };
 
+template<>
+struct FuncDispatch<OP_SUBSTR> : public FixOpHelper<FuncDispatch<OP_SUBSTR>, std::tuple<atomspan,int64_t,int64_t>, 1> {
+    static constexpr std::tuple<int64_t,int64_t> Defaults{0,std::numeric_limits<int64_t>::max()};
+    static SafeRef fixop(Program& program, atomspan sp, int64_t start, int64_t size)
+    {
+        start = std::clamp<int64_t>(start, -static_cast<int64_t>(sp.size()), static_cast<int64_t>(sp.size()));
+        if (start < 0) start = sp.size() + start;
+        size = std::clamp<int64_t>(size, 0, sp.size() - start);
+        return program.m_alloc.create(sp.subspan(start, size));
+    }
+};
+
 // XXX unimplemented functions, just to make it compile
 #if 0
 #endif
