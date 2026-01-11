@@ -716,19 +716,40 @@ struct FuncDefinition<OP_SHA256> {
     }
 };
 
-template<typename FE, template<typename _FE, _FE> class Dispatcher>
-static constexpr auto step_dispatch_table() {
-    return []<size_t... I>(std::index_sequence<I...>) -> std::array<void(*)(StepParams<FE>&),FuncEnumSize<FE>> {
-        return { [](StepParams<FE>& params) { Dispatcher<FE, static_cast<FE>(I)>::step(params); }... };
-    }(std::make_index_sequence<FuncEnumSize<FE>>{});
-}
-
 template<FuncEnum FE>
 struct FuncEnumDispatch {
-    static constexpr auto dispatch = step_dispatch_table<FE, FuncDispatch>();
+    template<auto Getter, template<typename, FE> typename Dispatcher>
+    static constexpr auto mk_dispatch_table() {
+        return []<size_t... I>(std::index_sequence<I...>) {
+            return std::array{ Getter.template operator()<Dispatcher<FE, static_cast<FE>(I)>>()... };
+        }(std::make_index_sequence<FuncEnumSize<FE>>{});
+    }
+
+    static constexpr auto get_step_fn = []<typename T>() -> void(*)(StepParams<FE>&) { return &T::step; };
+    static constexpr auto get_partial_step_fn = []<typename T>() -> SafeRef(*)(StepParams<FE>&) {
+        if constexpr (requires { &T::partial_step; }) {
+            return &T::partial_step;
+        } else {
+            return nullptr;
+        }
+    };
+
+    static constexpr auto step_dispatch = mk_dispatch_table<get_step_fn, FuncDispatch>();
+    static constexpr auto partial_step_dispatch = mk_dispatch_table<get_partial_step_fn, FuncDispatch>();
+
     static void step(StepParams<FE>&& params)
     {
-        return (dispatch[static_cast<size_t>(params.funcid)])(params);
+        return (step_dispatch[static_cast<size_t>(params.funcid)])(params);
+    }
+
+    static SafeRef partial_step(StepParams<FE>&& params)
+    {
+        auto f = partial_step_dispatch[static_cast<size_t>(params.funcid)];
+        if (f == nullptr) {
+            return params.program.m_alloc.error();
+        } else {
+            return f(params);
+        }
     }
 };
 
