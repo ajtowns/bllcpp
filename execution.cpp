@@ -63,6 +63,7 @@ static bool blleval_helper(auto& params)
 {
     // shouldn't call this function if there's feedback
     assert(params.feedback.is_null());
+    assert(!params.args.is_null());
     bool res = true;
     // XXX this should be convert<..>() instead of dispatch?
     params.args.dispatch(util::Overloaded(
