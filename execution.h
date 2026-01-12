@@ -77,7 +77,7 @@ public:
         eval_sexpr(std::move(sexpr), std::move(env));
     }
 
-    ~Program() = default;
+    ~Program();
 
     Program() = delete;
     Program(const Program&) = delete;

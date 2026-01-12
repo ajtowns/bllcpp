@@ -19,6 +19,18 @@ using atomspan = std::span<const uint8_t>;
 
 namespace Execution {
 
+Program::~Program()
+{
+    Allocator& rawalloc = m_alloc.Allocator();
+    Ref feedback{pop_feedback()};
+    rawalloc.deref(feedback.take());
+    while (!m_continuations.empty()) {
+        Continuation c{pop_continuation()};
+        rawalloc.deref(c.func.take());
+        rawalloc.deref(c.args.take());
+    }
+}
+
 void Program::new_continuation(Ref&& func, Ref&& args)
 {
     m_continuations.emplace_back(func.take(), args.take());
