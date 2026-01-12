@@ -417,18 +417,17 @@ void Program::step()
 
     Allocator& rawalloc = m_alloc.Allocator();
 
-    Ref feedback{pop_feedback()};
-    if (rawalloc.is_error(feedback)) {
-         // shortcut
+    if (rawalloc.is_error(m_feedback)) {
+         // terminal error state: clear/free continuations
          while (!m_continuations.empty()) {
               Continuation c{pop_continuation()};
               rawalloc.deref(c.func.take());
               rawalloc.deref(c.args.take());
          }
-         fin_value(m_alloc.takeref(feedback.take()));
          return;
     }
 
+    Ref feedback{pop_feedback()};
     Continuation cont{pop_continuation()};
 
     Ref args{cont.args.take()};
