@@ -54,6 +54,8 @@ template<> struct StepParams<Func> {
     SafeView env;
     SafeRef feedback;
     SafeRef args;
+
+    operator Program&() { return program; }
 };
 
 template<> struct StepParams<FuncCount> {
@@ -65,6 +67,8 @@ template<> struct StepParams<FuncCount> {
     SafeView env;
     SafeRef feedback;
     SafeRef args;
+
+    operator Program&() { return program; }
 };
 
 template<> struct StepParams<FuncExt> {
@@ -75,6 +79,8 @@ template<> struct StepParams<FuncExt> {
     SafeView env;
     SafeRef feedback;
     SafeRef args;
+
+    operator Program&() { return program; }
 };
 
 static bool blleval_helper(auto& params)
@@ -98,7 +104,7 @@ static bool blleval_helper(auto& params)
             return true;
         }
     } else {
-        params.program.error();
+        params.program.error(); // op argument something other than list/atom
         return true;
     }
 }
@@ -125,8 +131,11 @@ static SafeRef getenv(SafeView env, int64_t env_index)
 }
 
 namespace {
-template<auto FuncId> struct FuncDefinition;
 
+template<auto Dispatcher>
+static void Dispatch(Program& program, SafeView func, SafeRef&& feedback, SafeRef&& args);
+
+template<auto FuncId> struct FuncDefinition;
 template<FuncEnum FE, FE FuncId> struct FuncDispatch;
 
 template<>
@@ -155,7 +164,7 @@ struct FuncDispatch<Func, BLLEVAL> {
                         return params.program.error(); // invalid opcode
                     }), lookup_opcode(*op));
             } else {
-                return params.program.error(); // atom way too big to be an opcode
+                return params.program.error(); // sexpr list doesn't start with an opcode
             }
         } else {
             return params.program.error(); // trying to parse something strange
@@ -214,7 +223,6 @@ struct FuncDispatch<Func, FuncId> {
 
     static SafeRef partial_step(StepParams<Func>& params)
     {
-
         auto a = params.feedback.convert<ArgType>();
         if (!a) return params.program.m_alloc.error();
         auto s = get_state(params);
@@ -224,7 +232,7 @@ struct FuncDispatch<Func, FuncId> {
                 return params.func.copy();
             }
         }
-        SafeRef r = Derived::binop(params.program, *s, *a);
+        SafeRef r = Derived::binop(params, *s, *a);
         if (r.is_error()) {
             return r;
         } else {
@@ -252,42 +260,8 @@ struct FuncDispatch<Func, FuncId> {
 };
 
 template<>
-struct FuncDefinition<OP_PARTIAL> {
-    using StateType = SafeView;
-    using ArgType = SafeView;
-
-    static auto get_state(StepParams<Func>& params) { return params.state.convert<SafeView>(); }
-    static SafeRef binop(Program& program, const SafeView& state, const SafeView&)
-    {
-        SafeRef new_state = state.nullref();
-        new_state = program.m_alloc.error(); // XXX unimplementable :(
-        return new_state;
-#if 0
-        if (state.is_null()) {
-            if (arg.is_funcy()) {
-                new_state = state.copy(); // result of a previous partial
-            } else if (auto op = arg.convert<int64_t>(); op) {
-                std::visit(util::Overloaded(
-                    [&](FuncEnum auto funcid) {
-                        new_state = program.m_alloc.create(funcid, params.env.copy()); // params vs program
-                    },
-                    [&](const std::monostate&) {
-                        new_state = program.m_alloc.error(); // invalid opcode
-                    }), lookup_opcode(*op));
-            } else {
-                new_state = program.m_alloc.error(); // not something function-like
-            }
-        } else {
-            new_state = program.m_alloc.error(); // XXX unimplementable :(
-        }
-        return new_state;
-#endif
-    }
-
-    static void finish(Program& program, SafeView)
-    {
-        program.error(); // XXX
-    }
+struct FuncDispatch<Func, OP_PARTIAL> {
+    static void step(StepParams<Func>& params);
 };
 
 template<>
@@ -516,15 +490,28 @@ struct FuncDispatch<FuncCount, FuncId> {
     //  static constexpr std::tuple<...> Defaults{...};
     //  static SafeRef fixop(params, ...);
 
+    static SafeRef partial_step(StepParams<FuncCount>& params)
+    {
+        if (params.counter >= MaxArgs) {
+            return params.program.m_alloc.error(); // too many arguments
+        } else {
+            SafeRef new_state = params.program.m_alloc.cons(std::move(params.feedback), params.state.copy());
+            return params.program.m_alloc.takeref(
+                       params.program.m_alloc.Allocator().create_func(
+                           params.funcid, params.env.copy().take(),
+                           new_state.take(), params.counter+1));
+        }
+    }
+
     static void step(StepParams<FuncCount>& params)
     {
         if (!params.feedback.is_null()) {
-            if (params.counter >= MaxArgs) return params.program.error(); // too many arguments
-            SafeRef new_state = params.program.m_alloc.cons(std::move(params.feedback), params.state.copy());
-            params.program.new_continuation(
-                params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
-                    params.funcid, params.env.copy().take(), new_state.take(), params.counter+1)),
-                std::move(params.args));
+            SafeRef r = partial_step(params);
+            if (r.is_error()) {
+                params.program.fin_value(std::move(r));
+            } else {
+                params.program.new_continuation(std::move(r), std::move(params.args));
+            }
             return;
         }
 
@@ -672,24 +659,36 @@ struct FuncDispatch<FuncExt, FuncId> {
     using State = Derived::State;
     using ArgType = Derived::ArgType;
 
+    static SafeRef partial_step(StepParams<FuncExt>& params)
+    {
+        auto a = params.feedback.convert<ArgType>();
+        if (!a) return params.program.m_alloc.error();
+
+        State* r = Derived::extop(params.program, static_cast<const State*>(params.state), *a); // work()
+        if (r == nullptr) return params.program.m_alloc.error(); // internal failure
+
+        return params.program.m_alloc.takeref(
+                   params.program.m_alloc.Allocator().create_func(
+                       params.funcid, params.env.copy().take(),
+                       static_cast<const void*>(r)));
+    }
+
     static void step(StepParams<FuncExt>& params)
     {
-        if (params.feedback.is_null()) {
-            if (blleval_helper(params)) return;
-            Derived::finish(params.program, static_cast<const State*>(params.state));
+        if (!params.feedback.is_null()) {
+            SafeRef r = partial_step(params);
+            if (r.is_error()) {
+                params.program.fin_value(std::move(r));
+            } else {
+                params.program.new_continuation(std::move(r), std::move(params.args));
+            }
             return;
         }
 
-        auto a = params.feedback.convert<ArgType>();
-        if (!a) return params.program.error();
+        if (blleval_helper(params)) return;
 
-        State* r = Derived::extop(params.program, static_cast<const State*>(params.state), *a); // work()
-        if (r == nullptr) return params.program.error(); // internal failure
-
-        params.program.new_continuation(
-            params.program.m_alloc.takeref(params.program.m_alloc.Allocator().create_func(
-                params.funcid, params.env.copy().take(), static_cast<const void*>(r))),
-            std::move(params.args));
+        Derived::finish(params.program, static_cast<const State*>(params.state));
+        return;
     }
 };
 
@@ -717,7 +716,7 @@ struct FuncDefinition<OP_SHA256> {
 };
 
 template<FuncEnum FE>
-struct FuncEnumDispatch {
+struct FuncEnumDispatcher {
     template<auto Getter, template<typename, FE> typename Dispatcher>
     static constexpr auto mk_dispatch_table() {
         return []<size_t... I>(std::index_sequence<I...>) {
@@ -736,22 +735,138 @@ struct FuncEnumDispatch {
 
     static constexpr auto step_dispatch = mk_dispatch_table<get_step_fn, FuncDispatch>();
     static constexpr auto partial_step_dispatch = mk_dispatch_table<get_partial_step_fn, FuncDispatch>();
+};
 
-    static void step(StepParams<FE>&& params)
-    {
-        return (step_dispatch[static_cast<size_t>(params.funcid)])(params);
-    }
+struct FuncEnumDispatch {
+    static constexpr auto step = []<FuncEnum FE>(StepParams<FE>&& params) -> void {
+        return (FuncEnumDispatcher<FE>::step_dispatch[static_cast<size_t>(params.funcid)])(params);
+    };
 
-    static SafeRef partial_step(StepParams<FE>&& params)
-    {
-        auto f = partial_step_dispatch[static_cast<size_t>(params.funcid)];
+    static constexpr auto partial_step = []<FuncEnum FE>(StepParams<FE>&& params) -> SafeRef {
+        auto f = FuncEnumDispatcher<FE>::partial_step_dispatch[static_cast<size_t>(params.funcid)];
         if (f == nullptr) {
-            return params.program.m_alloc.error();
+            return params.program.m_alloc.error(); // can't partial step this function
         } else {
             return f(params);
         }
-    }
+    };
 };
+
+template<typename Dispatcher>
+static void Dispatch(Dispatcher&& dispatcher, Program& program, SafeView func, SafeRef&& feedback, SafeRef&& args)
+{
+    SafeAllocator& m_alloc = program.m_alloc;
+
+    func.dispatch(util::Overloaded(
+        [&](const TagView<Tag::FUNC,16>& f) {
+            dispatcher.template operator()<Func>({
+                .program=program,
+                .func=func,
+                .funcid=f.funcid,
+                .state=m_alloc.view(f.state),
+                .env=m_alloc.view(f.env),
+                .feedback=std::move(feedback),
+                .args=std::move(args),
+            });
+        },
+        [&](const TagView<Tag::FUNC_COUNT,16>& f) {
+            dispatcher.template operator()<FuncCount>({
+                .program=program,
+                .func=func,
+                .funcid=f.funcid,
+                .state=m_alloc.view(f.state),
+                .counter=f.counter,
+                .env=m_alloc.view(f.env),
+                .feedback=std::move(feedback),
+                .args=std::move(args),
+            });
+        },
+        [&](const TagView<Tag::FUNC_EXT,16>& f) {
+            dispatcher.template operator()<FuncExt>({
+                .program=program,
+                .func=func,
+                .funcid=f.funcid,
+                .state=f.state,
+                .env=m_alloc.view(f.env),
+                .feedback=std::move(feedback),
+                .args=std::move(args),
+            });
+        },
+        [&](const auto&) {
+            program.error();
+        }
+    ));
+}
+
+void FuncDispatch<Func, OP_PARTIAL>::step(StepParams<Func>& params)
+{
+    // (partial X args...)  -- applies args to X but doesn't finish it
+    // (partial X) -- finishes X, whether it is the result of a previous
+    //                partial with args, or an opcode
+
+    assert(!params.args.is_null());
+
+    if (params.feedback.is_null()) {
+        if (blleval_helper(params)) {
+            // blleval handled it
+        } else if (params.state.is_null()) {
+            params.program.error(); // (partial) with no param is invalid
+        } else {
+            params.program.fin_value(params.state.copy());
+        }
+        return;
+    }
+
+    // we have feedback
+    SafeRef new_state = params.program.m_alloc.nullref();
+    if (params.state.is_null()) {
+        auto& arg = params.feedback;
+
+        if (arg.is_funcy()) {
+            // result of a previous partial
+            new_state = arg.copy();
+        } else if (auto op = arg.convert<int64_t>(); op) {
+            // generate a new func obj from an opcode
+            std::visit(util::Overloaded(
+                [&](FuncEnum auto funcid) {
+                    new_state = params.program.m_alloc.create(funcid, params.env.copy()); // params vs program
+                },
+                [&](const std::monostate&) { }
+            ), lookup_opcode(*op));
+        }
+        if (new_state.is_null()) {
+            params.program.error(); // not an opcode or function
+            return;
+        }
+
+        const bool finish = [&]() {
+            auto argatom = SafeView(params.args).convert<atomspan>();
+            return (argatom && argatom->size() == 0);
+        }();
+        if (finish) {
+            auto& m_alloc = params.program.m_alloc;
+            return Dispatch(FuncEnumDispatch::step, params.program, new_state, m_alloc.nullref(), std::move(params.args));
+        }
+    } else {
+        auto ps_result = [&]<FuncEnum FE>(StepParams<FE>&& params) -> void {
+            new_state = FuncEnumDispatch::partial_step.template operator()<FE>(std::move(params));
+        };
+
+        Dispatch(ps_result, params.program, params.state, std::move(params.feedback), params.state.nullref());
+    }
+
+    assert(!params.args.is_null());
+    assert(!new_state.is_null());
+    if (new_state.is_error()) {
+        params.program.fin_value(std::move(new_state));
+    } else {
+        params.program.new_continuation(
+            params.program.m_alloc.takeref(
+                params.program.m_alloc.Allocator().create_func(
+                    params.funcid, params.env.copy().take(), new_state.take())),
+            std::move(params.args));
+    }
+}
 
 } // anonymous namespace
 
@@ -774,51 +889,8 @@ void Program::step()
     Ref feedback{pop_feedback()};
     Continuation cont{pop_continuation()};
 
-    Ref func{cont.func.take()};
-    Ref args{cont.args.take()};
-
-    rawalloc.dispatch(func, util::Overloaded(
-        [&](const TagView<Tag::FUNC,16>& f) {
-            FuncEnumDispatch<Func>::step({
-                .program=*this,
-                .func=m_alloc.view(func),
-                .funcid=f.funcid,
-                .state=m_alloc.view(f.state),
-                .env=m_alloc.view(f.env),
-                .feedback=m_alloc.takeref(feedback.take()),
-                .args=m_alloc.takeref(args.take()),
-            });
-        },
-        [&](const TagView<Tag::FUNC_COUNT,16>& f) {
-            FuncEnumDispatch<FuncCount>::step({
-                .program=*this,
-                .func=m_alloc.view(func),
-                .funcid=f.funcid,
-                .state=m_alloc.view(f.state),
-                .counter=f.counter,
-                .env=m_alloc.view(f.env),
-                .feedback=m_alloc.takeref(feedback.take()),
-                .args=m_alloc.takeref(args.take()),
-            });
-        },
-        [&](const TagView<Tag::FUNC_EXT,16>& f) {
-            FuncEnumDispatch<FuncExt>::step({
-                .program=*this,
-                .func=m_alloc.view(func),
-                .funcid=f.funcid,
-                .state=f.state,
-                .env=m_alloc.view(f.env),
-                .feedback=m_alloc.takeref(feedback.take()),
-                .args=m_alloc.takeref(args.take()),
-            });
-        },
-        [&](const auto&) {
-            rawalloc.deref(feedback.take());
-            rawalloc.deref(args.take());
-            error();
-        }
-    ));
-    rawalloc.deref(func.take());
+    SafeRef func{m_alloc.takeref(cont.func.take())};
+    return Dispatch(FuncEnumDispatch::step, *this, func, m_alloc.takeref(feedback.take()), m_alloc.takeref(cont.args.take()));
 }
 
 } // Execution namespace

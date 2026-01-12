@@ -296,6 +296,12 @@ void test11(Buddy::Allocator& raw_alloc)
     run(shaop);
     alloc.DumpChunks();
 
+    Execution::Program partialop{alloc,
+         list(OP_PARTIAL, list(OP_PARTIAL, list(OP_PARTIAL, q(OP_SHA256), q("inner")), q("outer"))),
+         list()};
+    run(partialop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());
