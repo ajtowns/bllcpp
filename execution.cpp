@@ -109,16 +109,19 @@ static bool blleval_helper(auto& params)
     }
 }
 
-static SafeRef getenv(SafeView env, int64_t env_index)
+static SafeRef get_env(SafeView env, int64_t env_index)
 {
     SafeAllocator& alloc = env.Allocator();
     SafeRef res{alloc.nullref()};
-    if (env_index <= 0) {
+    if (env_index == 0) {
         res = alloc.nil();
-    } else {
+    } else if (env_index > 0) {
         while (env_index > 1) {
             auto lr = env.convert<std::pair<SafeView, SafeView>>();
-            if (!lr) break;
+            if (!lr) {
+                env = res;
+                break;
+            }
             if (env_index % 2 == 0) {
                 env = lr->first;
             } else {
@@ -148,8 +151,8 @@ struct FuncDispatch<Func, BLLEVAL> {
             if (env_index == 0) {
                 return params.program.fin_value(params.program.m_alloc.nil());
             } else if (env_index > 0) {
-                auto env = getenv(params.env, env_index);
-                if (env.is_null()) return params.program.error();
+                auto env = get_env(params.env, env_index);
+                if (env.is_null()) return params.program.error(); // invalid env reference
                 return params.program.fin_value(env.copy());
             } else {
                 return params.program.error(); // negative env is impossible
