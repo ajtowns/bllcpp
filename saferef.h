@@ -177,6 +177,12 @@ public:
         return make_safe(m_alloc.create<Buddy::Tag::CONS,16>({.left=l, .right=r}));
     }
 
+    std::pair<SafeRef, std::span<uint8_t>> create_writable_span(uint32_t size)
+    {
+        auto [ref, sp] = m_alloc.create_writable_span(size);
+        return {make_safe(ref.take()), sp};
+    }
+
     SafeRef create_list() LIFETIMEBOUND { return nil(); }
     template<typename H, typename... T>
     SafeRef create_list(H&& h, T&&... args) LIFETIMEBOUND

@@ -302,6 +302,16 @@ void test11(Buddy::Allocator& raw_alloc)
     run(partialop);
     alloc.DumpChunks();
 
+    Execution::Program byteop{alloc,
+         list(OP_RC, list(),
+              list(OP_AND_BYTES, q(0xAAFFFF), q(0xAAFFFF00), q(0xAA00FF00)),
+              list(OP_NAND_BYTES, q(0xAAFFFF), q(0xAAFFFF00), q(0xAA00FF00)),
+              list(OP_OR_BYTES, q(0xAAFFFF), q(0xAAFFFF00), q(0xAA00FF00)),
+              list(OP_XOR_BYTES, q(0xAAFFFF), q(0xAAFFFF00), q(0xAA00FF00))
+         ), list()};
+    run(byteop);
+    alloc.DumpChunks();
+
     assert(env.is_null());
     assert(one.is_null());
     assert(sexpr.is_null());

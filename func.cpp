@@ -99,10 +99,10 @@ static constexpr OpCodeInfo OPCODE_INFO{ {
   { 16, OP_STRLEN },
   { 17, OP_SUBSTR },
   { 18, OP_CAT },
-  // { 19, OP_NAND_BYTES },
-  // { 20, OP_AND_BYTES },
-  // { 21, OP_OR_BYTES },
-  // { 22, OP_XOR_BYTES },
+  { 19, OP_NAND_BYTES },
+  { 20, OP_AND_BYTES },
+  { 21, OP_OR_BYTES },
+  { 22, OP_XOR_BYTES },
   { 23, OP_ADD },
   // { 24, OP_SUB },
   // { 25, OP_MUL },
@@ -161,6 +161,10 @@ std::string get_funcname(FuncVariant funcid)
                 OP_NAME(OP_LT_STR)
                 OP_NAME(OP_STRLEN)
                 OP_NAME(OP_CAT)
+                OP_NAME(OP_NAND_BYTES)
+                OP_NAME(OP_AND_BYTES)
+                OP_NAME(OP_OR_BYTES)
+                OP_NAME(OP_XOR_BYTES)
                 OP_NAME(OP_ADD)
             }
         },

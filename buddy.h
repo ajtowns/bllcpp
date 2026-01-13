@@ -289,9 +289,9 @@ template<>
 struct TagView<Tag::OWNED_ATOM, 16> : public TagRefCount
 {
     uint32_t size;
-    const uint8_t* data;
+    uint8_t* data;
     std::span<const uint8_t> span() const { return std::span<const uint8_t>{data, size}; }
-    TagView<Tag::OWNED_ATOM, 16>(const uint8_t* _data, uint32_t _size) : size{_size}, data{_data} { }
+    TagView<Tag::OWNED_ATOM, 16>(uint8_t* _data, uint32_t _size) : size{_size}, data{_data} { }
 };
 static_assert(sizeof(TagView<Tag::OWNED_ATOM, 16>) == 16);
 
@@ -511,11 +511,33 @@ public:
         std::copy(sp.begin(), sp.end(), ext);
         return create<Tag::OWNED_ATOM,16>({ext, static_cast<uint32_t>(sp.size())});
     }
+
+    std::pair<Ref, std::span<uint8_t>> create_writable_span(uint32_t size)
+    {
+        Ref ref{NULLREF};
+        std::span<uint8_t> sp{};
+        if (size <= 123) {
+            static constexpr std::array<uint8_t,123> arr{};
+            ref = create(std::span{arr}.subspan(0, size));
+            dispatch(ref, util::Overloaded(
+                [&]<size_t SIZE>(TagView<Tag::INPLACE_ATOM,SIZE>& atv) { sp = std::span{atv.data}.subspan(0,size); },
+                [&](const auto&) { }
+            ));
+        } else {
+            uint8_t* ext{static_cast<uint8_t*>(std::malloc(size))};
+            sp = std::span{ext, size};
+            std::fill(sp.begin(), sp.end(), 0);
+            ref = create<Tag::OWNED_ATOM,16>({ext, size});
+        }
+        return {ref, sp};
+    }
+
     Ref create(std::span<const char> sp) { return create(MakeUCharSpan(sp)); }
     Ref create(std::string_view sv) { return create(MakeUCharSpan(sv)); }
     Ref create(const char* s) { return create(std::span(s, strlen(s))); }
     Ref create(int64_t n);
     Ref create(int n) { return create(static_cast<int64_t>(n)); }
+    Ref create(unsigned n) { return create(static_cast<int64_t>(n)); }
 
     Ref create(FuncEnum auto func) { return create(get_opcode(func)); }
 

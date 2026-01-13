@@ -22,10 +22,10 @@ enum class Func : uint16_t {
     OP_LT_STR,
     OP_STRLEN,
     OP_CAT,
-    // OP_NAND_BYTES,
-    // OP_AND_BYTES,
-    // OP_OR_BYTES,
-    // OP_XOR_BYTES,
+    OP_NAND_BYTES,
+    OP_AND_BYTES,
+    OP_OR_BYTES,
+    OP_XOR_BYTES,
     OP_ADD,
     // OP_SUB,
     // OP_MUL,
@@ -65,7 +65,7 @@ concept FuncEnum =
     std::is_same_v<T, FuncExt>;
 
 template<FuncEnum FE> struct FuncEnum_help;
-template<> struct FuncEnum_help<Func> { static constexpr size_t value = 12; };
+template<> struct FuncEnum_help<Func> { static constexpr size_t value = 16; };
 template<> struct FuncEnum_help<FuncCount> { static constexpr size_t value = 6; };
 template<> struct FuncEnum_help<FuncExt> { static constexpr size_t value = 1; };
 

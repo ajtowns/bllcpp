@@ -194,18 +194,25 @@ struct FuncDispatch<Func, FuncId> {
         { a.nil().convert<decltype(Derived::initial_state())>().set_value(Derived::initial_state()) };
    };
 
+   static constexpr bool InitialStateIsArg = requires {
+       { Derived::InitialStateIsArg } -> std::same_as<const bool&>;
+   };
+
     static constexpr bool HasIdempotent = requires(const StateType& s, const ArgType& a) { static_cast<bool>(Derived::idempotent(s,a)); };
     static constexpr bool HasFinish = requires(Program& p, const StateType& s) { Derived::finish(p, s); };
     static constexpr bool HasGetState = requires(StepParams<Func>& p) { StateType{*Derived::get_state(p)}; };
 
     static void finish(Program& program, SafeView state)
     {
-        static_assert(HasFinish || HasInitialState);
         if constexpr (HasFinish) {
             return Derived::finish(program, state);
         } else {
             if (state.is_null()) {
-                program.fin_value(program.m_alloc.create(Derived::initial_state()));
+                if constexpr (HasInitialState) {
+                    program.fin_value(program.m_alloc.create(Derived::initial_state()));
+                } else {
+                    program.error(); // no initial state
+                }
             } else {
                 program.fin_value(state.copy());
             }
@@ -214,18 +221,34 @@ struct FuncDispatch<Func, FuncId> {
 
     static auto get_state(StepParams<Func>& params)
     {
-        static_assert(HasGetState || HasInitialState);
+        static_assert(HasGetState || HasInitialState || InitialStateIsArg);
         if constexpr (HasGetState) {
             return Derived::get_state(params);
         } else {
             auto s = params.state.convert<StateType>();
-            if (!s) s.set_value(Derived::initial_state());
+            if constexpr (!InitialStateIsArg) {
+                if (!s) s.set_value(Derived::initial_state());
+            }
             return s;
         }
     }
 
     static SafeRef partial_step(StepParams<Func>& params)
     {
+        if constexpr (InitialStateIsArg) {
+            static_assert(Derived::InitialStateIsArg); // must be absent or set to true
+            static_assert(std::is_same_v<StateType, ArgType>);
+            if (params.state.is_null()) {
+                auto a = SafeView(params.feedback).convert<ArgType>();
+                if (a) {
+                    return params.program.m_alloc.takeref(
+                        params.program.m_alloc.Allocator().create_func(
+                            params.funcid, params.env.copy().take(), params.feedback.take()));
+                } else {
+                    return params.program.m_alloc.error();
+                }
+            }
+        }
         auto a = params.feedback.convert<ArgType>();
         if (!a) return params.program.m_alloc.error();
         auto s = get_state(params);
@@ -436,6 +459,109 @@ struct FuncDefinition<OP_CAT> {
         } else {
             return program.m_alloc.create_owned(dst);
         }
+    }
+};
+
+template<>
+struct FuncDefinition<OP_AND_BYTES> {
+    using StateType = atomspan;
+    using ArgType = atomspan;
+
+    static constexpr bool InitialStateIsArg = true;
+
+    static SafeRef binop(Program& program, atomspan state, atomspan arg)
+    {
+        size_t sz = std::max(state.size(), arg.size());
+        auto [r, sp] = program.m_alloc.create_writable_span(sz);
+        assert(sp.size() == sz);
+
+        for (size_t i = 0; i < state.size(); ++i) {
+            sp[i] = state[i];
+        }
+        for (size_t i = 0; i < arg.size(); ++i) {
+            sp[i] &= arg[i];
+        }
+        return std::move(r);
+    }
+};
+
+template<>
+struct FuncDefinition<OP_NAND_BYTES> {
+    using StateType = atomspan;
+    using ArgType = atomspan;
+
+    static atomspan initial_state() { return {}; }
+
+    static SafeRef binop(Program& program, atomspan state, atomspan arg)
+    {
+        size_t sz = std::max(state.size(), arg.size());
+        auto [r, sp] = program.m_alloc.create_writable_span(sz);
+        assert(sp.size() == sz);
+
+        // state is "NOT(previous)"
+        // want "NOT(previous AND arg)"
+        // which is "NOT( NOT(state) AND arg )"
+        size_t i = 0;
+        for (; i < std::min(state.size(), arg.size()); ++i) {
+            sp[i] = (0xFF ^ ((0xFF ^ state[i]) & arg[i]));
+        }
+        for (; i < state.size(); ++i) {
+            sp[i] = state[i];
+        }
+        for (; i < arg.size(); ++i) {
+            sp[i] = 0xFF ^ arg[i];
+        }
+        return std::move(r);
+    }
+};
+
+template<>
+struct FuncDefinition<OP_OR_BYTES> {
+    using StateType = atomspan;
+    using ArgType = atomspan;
+
+    static atomspan initial_state() { return {}; }
+
+    static bool idempotent(const atomspan&, const atomspan& arg) { return arg.size() == 0; }
+
+    static SafeRef binop(Program& program, atomspan state, atomspan arg)
+    {
+        size_t sz = std::max(state.size(), arg.size());
+        auto [r, sp] = program.m_alloc.create_writable_span(sz);
+        assert(sp.size() == sz);
+
+        for (size_t i = 0; i < state.size(); ++i) {
+            sp[i] = state[i];
+        }
+        for (size_t i = 0; i < arg.size(); ++i) {
+            sp[i] |= arg[i];
+        }
+        return std::move(r);
+    }
+};
+
+template<>
+struct FuncDefinition<OP_XOR_BYTES> {
+    using StateType = atomspan;
+    using ArgType = atomspan;
+
+    static atomspan initial_state() { return {}; }
+
+    static bool idempotent(const atomspan&, const atomspan& arg) { return arg.size() == 0; }
+
+    static SafeRef binop(Program& program, atomspan state, atomspan arg)
+    {
+        size_t sz = std::max(state.size(), arg.size());
+        auto [r, sp] = program.m_alloc.create_writable_span(sz);
+        assert(sp.size() == sz);
+
+        for (size_t i = 0; i < state.size(); ++i) {
+            sp[i] = state[i];
+        }
+        for (size_t i = 0; i < arg.size(); ++i) {
+            sp[i] ^= arg[i];
+        }
+        return std::move(r);
     }
 };
 
